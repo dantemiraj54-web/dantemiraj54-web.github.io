@@ -180,16 +180,23 @@ td{padding:6px 14px;vertical-align:middle}
 </div><!-- end tab-compare -->
 
 <!-- ===== PAYMENTS UPDATE TAB ===== -->
-<!-- ===== PAYMENTS UPDATE TAB ===== -->
 <div id="tab-payments" class="tab-pane">
   <div class="mgmt-section">
-    <div class="mgmt-section-title">Paste Payments CSV</div>
-    <p style="font-size:12px;color:#666;margin-bottom:10px">
-      Copy your <strong>Payments by Employer</strong> sheet (two columns: <code>Employer,202606</code>) and paste it below, then click Load.
+    <div class="mgmt-section-title">Load Payments from File</div>
+    <p style="font-size:12px;color:#666;margin-bottom:12px">
+      Tap <strong>Choose File</strong> to open your folder and select your <strong>Payments by Employer</strong> CSV or Excel sheet (columns: <code>Employer, 202606</code>). The dashboard updates instantly everywhere once loaded.
     </p>
-    <textarea id="pmts-paste" rows="6" placeholder="Employer,202606&#10;UGANDA POLICE FORCE,1689&#10;ABSA BANK UGANDA LIMITED,67&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none"></textarea>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:8px;background:#111;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">
+        📂 Choose File
+        <input type="file" id="pmts-file-input" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="loadPaymentsFile(this)">
+      </label>
+      <span id="pmts-file-name" style="font-size:12px;color:#888;font-style:italic">No file selected</span>
+    </div>
+    <p style="font-size:11px;color:#aaa;margin-top:8px">Or paste CSV text directly:</p>
+    <textarea id="pmts-paste" rows="3" placeholder="Employer,202606&#10;UGANDA POLICE FORCE,1689&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none;margin-top:4px"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-      <button class="btn-add" onclick="loadPaymentsCSV()">⬆ Load Payments</button>
+      <button class="btn-add" onclick="loadPaymentsCSV()">⬆ Load Pasted Text</button>
       <span id="pmts-status" style="font-size:12px;color:#888"></span>
     </div>
     <div id="pmts-error" style="color:#791F1F;font-size:12px;margin-top:6px;display:none"></div>
@@ -218,13 +225,21 @@ td{padding:6px 14px;vertical-align:middle}
 <!-- ===== BOOSTED EMPLOYERS TAB ===== -->
 <div id="tab-boosted" class="tab-pane">
   <div class="mgmt-section">
-    <div class="mgmt-section-title">Paste Boosted Employers CSV</div>
-    <p style="font-size:12px;color:#666;margin-bottom:10px">
-      Copy your <strong>Contact Centre</strong> sheet (single column: <code>Employer</code>) and paste it below, then click Load. This will <strong>replace</strong> the current boosted list.
+    <div class="mgmt-section-title">Load Boosted Employers from File</div>
+    <p style="font-size:12px;color:#666;margin-bottom:12px">
+      Tap <strong>Choose File</strong> to select your <strong>Contact Centre</strong> CSV (single column: <code>Employer</code>). This will <strong>replace</strong> the current boosted list. Each employer card shows a remove button so you can drop any one individually.
     </p>
-    <textarea id="boost-paste" rows="6" placeholder="Employer &#10;AsOne ministries&#10;Koboko Municipal Council&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none"></textarea>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:8px;background:#111;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">
+        📂 Choose File
+        <input type="file" id="boost-file-input" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="loadBoostedFile(this)">
+      </label>
+      <span id="boost-file-name" style="font-size:12px;color:#888;font-style:italic">No file selected</span>
+    </div>
+    <p style="font-size:11px;color:#aaa;margin-top:8px">Or paste CSV text directly:</p>
+    <textarea id="boost-paste" rows="3" placeholder="Employer&#10;AsOne ministries&#10;Koboko Municipal Council&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none;margin-top:4px"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-      <button class="btn-add" onclick="loadBoostedCSV()">⬆ Load Boosted List</button>
+      <button class="btn-add" onclick="loadBoostedCSV()">⬆ Load Pasted Text</button>
       <span id="boost-csv-status" style="font-size:12px;color:#888"></span>
     </div>
     <div id="boost-error" style="color:#791F1F;font-size:12px;margin-top:6px;display:none"></div>
@@ -741,8 +756,87 @@ document.getElementById('cmp-pd-f').onchange = renderCompare;
 document.getElementById('cmp-srch').oninput = renderCompare;
 
 // ========================================================
-// STORAGE HELPERS
+// FILE PICKER HANDLERS
 // ========================================================
+function loadPaymentsFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  document.getElementById('pmts-file-name').textContent = file.name;
+  var errEl = document.getElementById('pmts-error');
+  var statusEl = document.getElementById('pmts-status');
+  errEl.style.display = 'none';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    // If it looks like binary (xlsx), tell user to export as CSV
+    if (text.indexOf('PK\x03\x04') !== -1 || text.indexOf('\x00') !== -1) {
+      errEl.textContent = 'Excel binary detected. Please export the sheet as CSV (.csv) first, then select that file.';
+      errEl.style.display = 'block';
+      return;
+    }
+    var result = parsePaymentsCSV(text);
+    if (!result.ok) { errEl.textContent = result.error; errEl.style.display='block'; return; }
+    _savePaymentsSnapshot(result, statusEl);
+    input.value = ''; // reset picker so same file can be re-picked
+  };
+  reader.readAsText(file);
+}
+
+function loadBoostedFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  document.getElementById('boost-file-name').textContent = file.name;
+  var errEl = document.getElementById('boost-error');
+  var statusEl = document.getElementById('boost-csv-status');
+  errEl.style.display = 'none';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    if (text.indexOf('PK\x03\x04') !== -1 || text.indexOf('\x00') !== -1) {
+      errEl.textContent = 'Excel binary detected. Please export as CSV first.';
+      errEl.style.display = 'block';
+      return;
+    }
+    var result = parseBoostedCSV(text);
+    if (!result.ok) { errEl.textContent = result.error; errEl.style.display='block'; return; }
+    var list = result.employers;
+    list.sort();
+    saveBoostedList(list);
+    statusEl.textContent = '✓ Loaded ' + list.length + ' employers from ' + escHtml(file.name);
+    renderBoostedList();
+    // Refresh compare tab if open
+    if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ========================================================
+// SHARED SNAPSHOT SAVE (used by both file picker and paste)
+// ========================================================
+function _savePaymentsSnapshot(result, statusEl) {
+  var snaps = getSnapshots();
+  var now = new Date();
+  var dateStr = now.toISOString().slice(0,10);
+  var timeStr = now.toTimeString().slice(0,5);
+  var snap = { id: Date.now(), date: dateStr, time: timeStr, label: dateStr+' '+timeStr, total: result.total, colName: result.colName, data: result.data };
+  snaps.push(snap);
+  saveSnapshots(snaps);
+
+  // Update ACTUAL_PMTS with latest snapshot data
+  Object.keys(result.data).forEach(function(k){ ACTUAL_PMTS[k] = result.data[k]; });
+
+  if (statusEl) statusEl.textContent = '✓ Loaded '+Object.keys(result.data).length+' employers, total: '+result.total.toLocaleString();
+  renderPaymentsTab();
+
+  // *** CROSS-TAB SYNC: re-render All Employers and Compare ***
+  render();
+  if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
+}
+
+
 var STORE_KEY_PAYMENTS = 'ug_collections_payments';
 var STORE_KEY_BOOSTED  = 'ug_collections_boosted';
 var STORE_KEY_CYCLES   = 'ug_collections_cycles';
@@ -819,37 +913,35 @@ function loadPaymentsCSV() {
   var result = parsePaymentsCSV(raw);
   if (!result.ok) { errEl.textContent = result.error; errEl.style.display='block'; return; }
 
-  var snaps = getSnapshots();
-  var now = new Date();
-  var dateStr = now.toISOString().slice(0,10);
-  var timeStr = now.toTimeString().slice(0,5);
-  var snap = { id: Date.now(), date: dateStr, time: timeStr, label: dateStr+' '+timeStr, total: result.total, colName: result.colName, data: result.data };
-  snaps.push(snap);
-  saveSnapshots(snaps);
-
-  // Also update ACTUAL_PMTS with latest snapshot
-  Object.keys(result.data).forEach(function(k){ ACTUAL_PMTS[k] = result.data[k]; });
-
   document.getElementById('pmts-paste').value = '';
-  statusEl.textContent = '✓ Loaded '+Object.keys(result.data).length+' employers, total: '+result.total.toLocaleString();
-  renderPaymentsTab();
+  _savePaymentsSnapshot(result, statusEl);
 }
 
 function deleteSnapshot(id) {
   var snaps = getSnapshots().filter(function(s){ return s.id !== id; });
   saveSnapshots(snaps);
-  // Reapply latest snapshot to ACTUAL_PMTS
+  // Reapply latest snapshot to ACTUAL_PMTS or reset to base DATA
   if (snaps.length) {
     var latest = snaps[snaps.length-1];
     Object.keys(latest.data).forEach(function(k){ ACTUAL_PMTS[k] = latest.data[k]; });
+  } else {
+    DATA.forEach(function(r){ ACTUAL_PMTS[r[0].toUpperCase()] = r[1]; });
   }
   renderPaymentsTab();
+  render(); // sync All Employers tab
+  if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
 }
 
 function confirmClearPayments() {
   document.getElementById('modal-title').textContent = 'Clear All Snapshots?';
   document.getElementById('modal-body').textContent = 'This will remove all payment snapshots for the current cycle. The action cannot be undone.';
-  document.getElementById('modal-confirm-btn').onclick = function() { closeModal(); saveSnapshots([]); renderPaymentsTab(); };
+  document.getElementById('modal-confirm-btn').onclick = function() {
+    closeModal();
+    saveSnapshots([]);
+    DATA.forEach(function(r){ ACTUAL_PMTS[r[0].toUpperCase()] = r[1]; });
+    renderPaymentsTab();
+    render();
+  };
   document.getElementById('confirm-modal').className = 'confirm-modal show';
 }
 
@@ -1020,9 +1112,12 @@ function renderBoostedList() {
   grid.innerHTML = filtered.map(function(b){
     var pmts = ACTUAL_PMTS[b.toUpperCase()] || 0;
     var safe = escHtml(b);
-    return '<div class="boosted-item"><span title="'+safe+'">'+safe+'</span>' +
+    var onclick = "removeBoostedEmployer('" + safe.replace(/'/g, "\\'") + "')";
+    return '<div class="boosted-item">' +
+      '<span title="'+safe+'" style="font-size:12px">'+safe+'</span>' +
       '<span style="color:#888;font-size:11px;flex-shrink:0">'+pmts+' pmts</span>' +
-      '<button class="del-btn" onclick="removeBoostedEmployer(\''+safe.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\')">×</button></div>';
+      '<button class="del-btn" onclick="'+onclick+'" style="flex-shrink:0;padding:3px 10px;font-size:11px;white-space:nowrap">&#x2715; Remove</button>' +
+      '</div>';
   }).join('');
 }
 
@@ -1081,8 +1176,36 @@ function doCloseCycle() {
   var snaps = getSnapshots();
   var latest = snaps.length ? snaps[snaps.length-1].total : null;
 
+  // *** AUTO-AVERAGE: compute per-employer average from all snapshots in this cycle ***
+  // Use the LAST snapshot's employer counts as the final cycle total per employer
+  // and update the DATA avg column so % of avg recalculates correctly next cycle
+  if (snaps.length) {
+    var finalSnap = snaps[snaps.length-1];
+    DATA.forEach(function(r) {
+      var key = r[0].toUpperCase();
+      if (finalSnap.data[key] !== undefined) {
+        var finalCount = finalSnap.data[key];
+        // Weighted rolling average: blend prior avg with this cycle's final count
+        // If prior avg was 0 or null, just use the new count
+        var priorAvg = r[2] || 0;
+        var newAvg = priorAvg > 0 ? Math.round((priorAvg + finalCount) / 2 * 10) / 10 : finalCount;
+        r[2] = newAvg;
+        // Recompute pct based on new avg and current payments
+        r[3] = newAvg > 0 ? Math.round(finalCount / newAvg * 100) : null;
+      }
+    });
+    // Persist updated averages in localStorage for this session
+    saveStore('ug_data_avgs', DATA.map(function(r){ return [r[0], r[2]]; }));
+  }
+
   for (var i=0; i<cycles.length; i++) {
-    if (cycles[i].id === active.id) { cycles[i].status = 'closed'; cycles[i].finalCount = latest; break; }
+    if (cycles[i].id === active.id) {
+      cycles[i].status = 'closed';
+      cycles[i].finalCount = latest;
+      // Store final snapshot data for historical reference
+      if (snaps.length) cycles[i].finalData = snaps[snaps.length-1].data;
+      break;
+    }
   }
   var nid = nextCycleId(active.id);
   var ninfo = cycleStartEnd(nid);
@@ -1090,7 +1213,8 @@ function doCloseCycle() {
   saveCycles(cycles);
   updatePageTitle();
   renderCyclesTab();
-  alert('Cycle closed. Now in: '+ninfo.label+' ('+ninfo.startLabel+' – '+ninfo.endLabel+')');
+  render(); // refresh All Employers with updated averages
+  alert('Cycle closed. Averages updated automatically. Now in: '+ninfo.label+' ('+ninfo.startLabel+' – '+ninfo.endLabel+')');
 }
 
 function updatePageTitle() {
@@ -1112,6 +1236,16 @@ function escHtml(s) {
 (function init() {
   if (loadStore(STORE_KEY_BOOSTED, null) === null) {
     saveStore(STORE_KEY_BOOSTED, BOOSTED_LIST.slice());
+  }
+  // Restore updated averages if a cycle was previously closed
+  var savedAvgs = loadStore('ug_data_avgs', null);
+  if (savedAvgs) {
+    var avgMap = {};
+    savedAvgs.forEach(function(pair){ avgMap[pair[0].toUpperCase()] = pair[1]; });
+    DATA.forEach(function(r){
+      var key = r[0].toUpperCase();
+      if (avgMap[key] !== undefined) r[2] = avgMap[key];
+    });
   }
   // Apply latest payment snapshot to ACTUAL_PMTS if available
   var snaps = getSnapshots();
