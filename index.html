@@ -372,6 +372,21 @@ allPds.forEach(function(pd) {
   sel.appendChild(o);
 });
 
+function getLiveCount(r) {
+  // Always read from ACTUAL_PMTS if loaded, else fall back to baked-in DATA value
+  if (typeof ACTUAL_PMTS === 'undefined') return r[1];
+  var key = r[0].toUpperCase();
+  return (ACTUAL_PMTS[key] !== undefined) ? ACTUAL_PMTS[key] : r[1];
+}
+
+function getLivePct(r) {
+  var count = getLiveCount(r);
+  var avg = r[2];
+  if (avg <= 0) return null;
+  if (count === 0) return 0;
+  return Math.round(count / avg * 100);
+}
+
 function render() {
   var vol = parseInt(document.getElementById("vol-f").value) || 0;
   var sig = document.getElementById("sig-f").value;
@@ -379,19 +394,21 @@ function render() {
   var pdF = document.getElementById("pd-f").value;
 
   var filtered = DATA.filter(function(r) {
-    if (vol && r[1] < vol) return false;
+    var liveCount = getLiveCount(r);
+    if (vol && liveCount < vol) return false;
     if (srch && r[0].toLowerCase().indexOf(srch) === -1) return false;
     if (pdF !== "all" && r[4] !== pdF) return false;
-    var s = getSignal(r[2] === 0 ? null : r[3], daysTo(r[4]));
+    var livePct = getLivePct(r);
+    var s = getSignal(r[2] === 0 ? null : livePct, daysTo(r[4]));
     if (sig === "early" && s !== "early") return false;
     if (sig === "weak" && s !== "weak") return false;
     if (sig === "new" && s !== "new") return false;
     return true;
   });
 
-  var ec = filtered.filter(function(r) { return getSignal(r[2]===0?null:r[3], daysTo(r[4])) === "early"; }).length;
-  var wc = filtered.filter(function(r) { return getSignal(r[2]===0?null:r[3], daysTo(r[4])) === "weak"; }).length;
-  var tp = filtered.reduce(function(s, r) { return s + r[1]; }, 0);
+  var ec = filtered.filter(function(r) { var p=getLivePct(r); return getSignal(r[2]===0?null:p, daysTo(r[4])) === "early"; }).length;
+  var wc = filtered.filter(function(r) { var p=getLivePct(r); return getSignal(r[2]===0?null:p, daysTo(r[4])) === "weak"; }).length;
+  var tp = filtered.reduce(function(s, r) { return s + getLiveCount(r); }, 0);
 
   document.getElementById("stats").innerHTML =
     '<div class="stat"><div class="stat-label">Employers shown</div><div class="stat-val">' + filtered.length + '</div></div>' +
@@ -406,14 +423,16 @@ function render() {
   container.innerHTML = "";
 
   keys.forEach(function(pd) {
-    var rows = groups[pd].sort(function(a, b) { return b[1] - a[1]; });
-    var totalP = rows.reduce(function(s, r) { return s + r[1]; }, 0);
+    // Sort by live count descending
+    var rows = groups[pd].sort(function(a, b) { return getLiveCount(b) - getLiveCount(a); });
+    var totalP = rows.reduce(function(s, r) { return s + getLiveCount(r); }, 0);
     var isOpen = openState[pd] !== false;
     var key = pd.replace(/[^a-z0-9]/gi, "_");
 
     var tbody = rows.map(function(r) {
       var d = daysTo(r[4]);
-      var pct = r[3];
+      var liveCount = getLiveCount(r);
+      var pct = getLivePct(r);
       var bar = Math.min(100, pct || 0);
       var s = getSignal(r[2] === 0 ? null : pct, d);
       var bc = s === "early" ? (pct >= 100 ? "#E24B4A" : "#27500A") : s === "weak" ? "#E24B4A" : "#aaa";
@@ -421,7 +440,7 @@ function render() {
       var barHtml = pct !== null ? '<span class="pbar-w"><span class="pbar" style="width:' + bar + '%;background:' + bc + '"></span></span>' : "";
       var safeName = r[0].replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       var tr = document.createElement("tr");
-      tr.innerHTML = "<td class='name'>" + safeName + "</td><td>" + getBadge(r[2]===0?null:pct,d) + "</td><td class='nr' style='font-weight:600'>" + r[1] + "</td><td class='nr' style='color:#999'>" + (r[2]>0?r[2].toFixed(1):"&mdash;") + "</td><td class='nr'>" + barHtml + "<span style='font-size:12px;margin-left:5px'>" + pctDisp + "</span></td>";
+      tr.innerHTML = "<td class='name'>" + safeName + "</td><td>" + getBadge(r[2]===0?null:pct,d) + "</td><td class='nr' style='font-weight:600'>" + liveCount + "</td><td class='nr' style='color:#999'>" + (r[2]>0?r[2].toFixed(1):"&mdash;") + "</td><td class='nr'>" + barHtml + "<span style='font-size:12px;margin-left:5px'>" + pctDisp + "</span></td>";
       return tr;
     });
 
