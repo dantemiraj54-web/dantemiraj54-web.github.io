@@ -1497,6 +1497,135 @@ function renderInsights() {
     'None'
   );
 
+  // ── CYCLE TIMELINE & TOMORROW ──────────────────────────────
+  // Build paydate buckets from DATA
+  var pdBuckets = {};
+  DATA.forEach(function(r) {
+    var pd = r[4];
+    if (!pdBuckets[pd]) pdBuckets[pd] = { employers:0, avg:0, jun:0, active:0, rows:[] };
+    pdBuckets[pd].employers++;
+    pdBuckets[pd].avg += r[2];
+    pdBuckets[pd].jun += getLiveCount(r);
+    pdBuckets[pd].active += r[6];
+    pdBuckets[pd].rows.push(r);
+  });
+
+  // Sort paydates in cycle order
+  function pdCycleVal(pd) {
+    if (pd === 'LF') return 26;
+    if (pd === 'LD') return 30;
+    var n = parseInt(pd);
+    if (isNaN(n)) return 99;
+    return n > 10 ? n : n + 30; // July dates come after June
+  }
+  var sortedPds = Object.keys(pdBuckets).sort(function(a,b){ return pdCycleVal(a)-pdCycleVal(b); });
+
+  // What is today and tomorrow in cycle terms
+  var todayVal = (_m === 6) ? _d : _d + 30; // June day or July day+30
+  var tomorrowVal = todayVal + 1;
+  var tomorrowLabel = (tomorrowVal <= 30) ? tomorrowVal + ' June' : (tomorrowVal - 30) + ' July';
+
+  // Running cumulative expected vs actual
+  var cumAvg = 0, cumJun = 0;
+  var timelineRows = [];
+  sortedPds.forEach(function(pd) {
+    var b = pdBuckets[pd];
+    var pdVal = pdCycleVal(pd);
+    var isPast = pdVal < todayVal;
+    var isToday = pdVal === todayVal;
+    var isTomorrow = pdVal === tomorrowVal;
+    cumAvg += b.avg;
+    cumJun += b.jun;
+    var pct = b.avg > 0 ? Math.round(b.jun / b.avg * 100) : 0;
+    var status = isPast ? (pct >= 70 ? '✓' : pct >= 40 ? '~' : '⚠') : (isToday ? '📅' : isTomorrow ? '⏰' : '');
+    timelineRows.push({ pd:pd, pdVal:pdVal, b:b, pct:pct, isPast:isPast, isToday:isToday, isTomorrow:isTomorrow, status:status, cumAvg:cumAvg, cumJun:cumJun });
+  });
+
+  // What we should have collected by today based on all past paydates
+  var expectedByToday = 0, actualByToday = 0;
+  timelineRows.forEach(function(row) {
+    if (row.isPast || row.isToday) {
+      expectedByToday += row.b.avg;
+      actualByToday += row.b.jun;
+    }
+  });
+  var vsExpected = expectedByToday > 0 ? Math.round(actualByToday / expectedByToday * 100) : 0;
+  var gapVsExpected = Math.round(expectedByToday - actualByToday);
+
+  // Tomorrow's employers
+  var tomorrowRows = timelineRows.filter(function(r){ return r.isTomorrow; });
+  var tomorrowExpected = tomorrowRows.reduce(function(s,r){ return s+r.b.avg; }, 0);
+  var tomorrowEmployers = tomorrowRows.reduce(function(s,r){ return s+r.b.employers; }, 0);
+
+  // Summary vs expectation
+  var vsColor = vsExpected >= 90 ? '#27500A' : vsExpected >= 70 ? '#7A5C00' : '#791F1F';
+  html += '<div class="mgmt-section-title" style="margin-top:16px;margin-bottom:8px">📅 Cycle timeline — expected vs collected by paydate</div>';
+
+  // Where we are vs where we should be
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">' +
+    _scard('Expected by today', Math.round(expectedByToday).toLocaleString()+' pmts', '#555') +
+    _scard('Actually collected', actualByToday.toLocaleString()+' pmts', vsColor) +
+    _scard('vs Expectation', vsExpected+'%', vsColor) +
+    _scard('Gap to close', (vsExpected < 100 ? '-' : '+')+Math.abs(gapVsExpected).toLocaleString()+' pmts', vsExpected>=100?'#27500A':'#791F1F') +
+    _scard('Still to come (future)', Math.round(totalAvg - expectedByToday).toLocaleString()+' avg', '#555') +
+    '</div>';
+
+  // Timeline table
+  var tlHtml = '<div class="tbl-wrap"><table><thead><tr>' +
+    '<th>Paydate</th><th class="nr">Employers</th><th class="nr">Avg/cycle</th>' +
+    '<th class="nr">Jun collected</th><th class="nr">% of avg</th><th class="nr">Status</th>' +
+    '</tr></thead><tbody>';
+
+  timelineRows.forEach(function(row) {
+    var bg = row.isToday ? 'background:#FFF8E1' : row.isTomorrow ? 'background:#F0F7FF' : '';
+    var pctColor = row.isPast ? (row.pct>=70?'#27500A':row.pct>=40?'#7A5C00':'#791F1F') : '#aaa';
+    var pdDisp = row.pd==='LD' ? 'Last Day (30 Jun)' : row.pd==='LF' ? 'Last Fri (26 Jun)' :
+      (parseInt(row.pd)>10 ? row.pd+' June' : row.pd+' July');
+    var label = row.isToday ? '<strong>'+pdDisp+' — TODAY</strong>' :
+      row.isTomorrow ? '<strong>'+pdDisp+' — TOMORROW</strong>' : pdDisp;
+    tlHtml += '<tr style="'+bg+'">' +
+      '<td>'+label+'</td>' +
+      '<td class="nr">'+row.b.employers+'</td>' +
+      '<td class="nr" style="color:#999">'+Math.round(row.b.avg)+'</td>' +
+      '<td class="nr" style="font-weight:'+(row.isPast||row.isToday?'600':'400')+'">'+row.b.jun+'</td>' +
+      '<td class="nr" style="color:'+pctColor+'">'+( row.isPast||row.isToday ? row.pct+'%' : '—' )+'</td>' +
+      '<td class="nr" style="font-size:14px">'+row.status+'</td>' +
+      '</tr>';
+  });
+  tlHtml += '</tbody></table></div>';
+  html += tlHtml;
+
+  // Tomorrow section
+  if (tomorrowRows.length > 0) {
+    html += '<div class="mgmt-section-title" style="color:#1a3a5c;margin-top:16px;margin-bottom:6px">⏰ Tomorrow ('+tomorrowLabel+') — employers to collect from</div>';
+    html += '<p style="font-size:12px;color:#666;margin-bottom:8px">'+tomorrowEmployers+' employer'+(tomorrowEmployers>1?'s':'')+' with paydate tomorrow. Combined average: <strong>'+Math.round(tomorrowExpected)+'</strong> payments per cycle. Here\'s where you should be focusing today.</p>';
+    var tomorrowData = [];
+    tomorrowRows.forEach(function(row){
+      row.b.rows.forEach(function(r){
+        tomorrowData.push(r);
+      });
+    });
+    tomorrowData.sort(function(a,b){ return b[2]-a[2]; });
+    html += tbl(
+      [{label:'Employer'},{label:'Jun pmts',right:true},{label:'Avg/cycle',right:true},{label:'% of avg',right:true},{label:'Active clients',right:true},{label:'Penetration',right:true},{label:'Tier'}],
+      tomorrowData.map(function(r){
+        var pct = getLivePct(r)||0;
+        var pen = r[6]>0 ? Math.min(r[8],100).toFixed(0)+'%' : '—';
+        var pctColor = pct>=70?'color:#27500A':pct>=40?'color:#7A5C00':'color:#791F1F';
+        return [
+          esc(r[0]),
+          getLiveCount(r),
+          r[2].toFixed(1),
+          '<span style="'+pctColor+'">'+pct+'%</span>',
+          r[6]||'—',
+          pen,
+          getTierBadge(r[5])
+        ];
+      }),
+      'No employers with tomorrow\'s paydate'
+    );
+  }
+
   // Section 6: Untapped potential — big active base, low penetration, room to chase
   // Logic: active clients >= 50, jun penetration < 60%, employer has paid before (pm >= 3)
   // Sort by "gap" = active clients - jun payments (most uncollected clients first)
