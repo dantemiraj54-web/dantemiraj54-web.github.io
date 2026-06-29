@@ -2218,36 +2218,36 @@ function clRender() {
 }
 
 // Wire up calling tab filters
-(function() {
-  function clRestoreFromStorage() {
-    try {
-      var saved = localStorage.getItem('cl_csv_raw');
-      var savedName = localStorage.getItem('cl_csv_name') || 'saved file';
-      var savedTime = localStorage.getItem('cl_csv_time') || '';
-      if (saved && saved.length > 100) {
-        var rows = clParseCSV(saved);
-        if (rows && rows.length > 0) {
-          clLiveData = clBuildFromRows(rows);
-          var lbl = document.getElementById('cl-file-label');
-          if (lbl) lbl.innerHTML = '<span style="color:#27500A;font-weight:600">&#10003; ' + savedName + '</span> &mdash; ' + rows.length.toLocaleString() + ' rows' + (savedTime ? ' &middot; uploaded ' + savedTime : '') + ' &nbsp;<span id="cl-clear-btn" onclick="clClearStorage()" style="cursor:pointer;color:#A32D2D;font-size:11px;border:1px solid #f0b4b4;border-radius:4px;padding:1px 7px;margin-left:6px">&#x2715; Clear</span>';
-          return true;
-        }
+function clRestoreFromStorage() {
+  try {
+    var saved = localStorage.getItem('cl_csv_raw');
+    var savedName = localStorage.getItem('cl_csv_name') || 'saved file';
+    var savedTime = localStorage.getItem('cl_csv_time') || '';
+    if (saved && saved.length > 100) {
+      var rows = clParseCSV(saved);
+      if (rows && rows.length > 0) {
+        clLiveData = clBuildFromRows(rows);
+        var lbl = document.getElementById('cl-file-label');
+        if (lbl) lbl.innerHTML = '<span style="color:#27500A;font-weight:600">&#10003; ' + savedName + '</span> &mdash; ' + rows.length.toLocaleString() + ' rows' + (savedTime ? ' &middot; uploaded ' + savedTime : '') + ' &nbsp;<span id="cl-clear-btn" onclick="clClearStorage()" style="cursor:pointer;color:#A32D2D;font-size:11px;border:1px solid #f0b4b4;border-radius:4px;padding:1px 7px;margin-left:6px">&#x2715; Clear</span>';
+        return true;
       }
-    } catch(e) {}
-    return false;
-  }
+    }
+  } catch(e) {}
+  return false;
+}
 
-  function clClearStorage() {
-    try { localStorage.removeItem('cl_csv_raw'); localStorage.removeItem('cl_csv_name'); localStorage.removeItem('cl_csv_time'); } catch(e) {}
-    clLiveData = null;
-    clActivePanels = {};
-    clOpenStates = {};
-    var lbl = document.getElementById('cl-file-label');
-    if (lbl) lbl.textContent = 'No file loaded — showing baseline data';
-    clRepopulatePdFilter();
-    clRender();
-  }
+function clClearStorage() {
+  try { localStorage.removeItem('cl_csv_raw'); localStorage.removeItem('cl_csv_name'); localStorage.removeItem('cl_csv_time'); } catch(e) {}
+  clLiveData = null;
+  clActivePanels = {};
+  clOpenStates = {};
+  var lbl = document.getElementById('cl-file-label');
+  if (lbl) lbl.textContent = 'No file loaded — showing baseline data';
+  clRepopulatePdFilter();
+  clRender();
+}
 
+(function() {
   function wireCallingFilters() {
     var pdSel = document.getElementById('cl-f-pd');
     var recSel = document.getElementById('cl-f-rec');
