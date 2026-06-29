@@ -718,6 +718,7 @@ function switchTab(t) {
   if (t==='boosted') renderBoostedTab();
   if (t==='cycles') renderCyclesTab();
   if (t==='insights') renderInsights();
+  if (t==='calling') clRender();
 }
 
 function cmpDaysTo(pd) {
@@ -1986,15 +1987,19 @@ function clLoadCSV(input) {
     var rows = clParseCSV(text);
     if (!rows) { document.getElementById('cl-file-label').textContent = 'Error reading file.'; return; }
     // Save raw CSV to localStorage so it survives refresh
-    try { localStorage.setItem('cl_csv_raw', text); localStorage.setItem('cl_csv_name', file.name); } catch(e2) {}
+    try {
+      localStorage.setItem('cl_csv_raw', text);
+      localStorage.setItem('cl_csv_name', file.name);
+      var now = new Date();
+      localStorage.setItem('cl_csv_time', now.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' ' + now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
+    } catch(e2) {}
     clLiveData = clBuildFromRows(rows);
     // Clear stale panel states so new data renders cleanly
     clActivePanels = {};
     clOpenStates = {};
     var d = new Date();
-    document.getElementById('cl-file-label').textContent =
-      file.name + ' — ' + rows.length.toLocaleString() + ' rows loaded at ' +
-      d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    var lbl = document.getElementById('cl-file-label');
+    if (lbl) lbl.innerHTML = '<span style="color:#27500A;font-weight:600">&#10003; ' + file.name + '</span> &mdash; ' + rows.length.toLocaleString() + ' rows loaded at ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' &nbsp;<span id="cl-clear-btn" onclick="clClearStorage()" style="cursor:pointer;color:#A32D2D;font-size:11px;border:1px solid #f0b4b4;border-radius:4px;padding:1px 7px;margin-left:6px">&#x2715; Clear</span>';
     clRepopulatePdFilter();
     clRender();
   };
@@ -2214,6 +2219,35 @@ function clRender() {
 
 // Wire up calling tab filters
 (function() {
+  function clRestoreFromStorage() {
+    try {
+      var saved = localStorage.getItem('cl_csv_raw');
+      var savedName = localStorage.getItem('cl_csv_name') || 'saved file';
+      var savedTime = localStorage.getItem('cl_csv_time') || '';
+      if (saved && saved.length > 100) {
+        var rows = clParseCSV(saved);
+        if (rows && rows.length > 0) {
+          clLiveData = clBuildFromRows(rows);
+          var lbl = document.getElementById('cl-file-label');
+          if (lbl) lbl.innerHTML = '<span style="color:#27500A;font-weight:600">&#10003; ' + savedName + '</span> &mdash; ' + rows.length.toLocaleString() + ' rows' + (savedTime ? ' &middot; uploaded ' + savedTime : '') + ' &nbsp;<span id="cl-clear-btn" onclick="clClearStorage()" style="cursor:pointer;color:#A32D2D;font-size:11px;border:1px solid #f0b4b4;border-radius:4px;padding:1px 7px;margin-left:6px">&#x2715; Clear</span>';
+          return true;
+        }
+      }
+    } catch(e) {}
+    return false;
+  }
+
+  function clClearStorage() {
+    try { localStorage.removeItem('cl_csv_raw'); localStorage.removeItem('cl_csv_name'); localStorage.removeItem('cl_csv_time'); } catch(e) {}
+    clLiveData = null;
+    clActivePanels = {};
+    clOpenStates = {};
+    var lbl = document.getElementById('cl-file-label');
+    if (lbl) lbl.textContent = 'No file loaded — showing baseline data';
+    clRepopulatePdFilter();
+    clRender();
+  }
+
   function wireCallingFilters() {
     var pdSel = document.getElementById('cl-f-pd');
     var recSel = document.getElementById('cl-f-rec');
@@ -2221,19 +2255,7 @@ function clRender() {
     if (pdSel) pdSel.addEventListener('change', clRender);
     if (recSel) recSel.addEventListener('change', clRender);
     if (srchEl) srchEl.addEventListener('input', clRender);
-    // Restore CSV from localStorage if available
-    try {
-      var saved = localStorage.getItem('cl_csv_raw');
-      var savedName = localStorage.getItem('cl_csv_name') || 'saved file';
-      if (saved) {
-        var rows = clParseCSV(saved);
-        if (rows && rows.length > 0) {
-          clLiveData = clBuildFromRows(rows);
-          var lbl = document.getElementById('cl-file-label');
-          if (lbl) lbl.textContent = savedName + ' — ' + rows.length.toLocaleString() + ' rows (restored from last session)';
-        }
-      }
-    } catch(e) {}
+    clRestoreFromStorage();
     clRepopulatePdFilter();
     clRender();
   }
