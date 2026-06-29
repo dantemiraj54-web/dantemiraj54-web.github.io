@@ -1982,9 +1982,15 @@ function clLoadCSV(input) {
   document.getElementById('cl-file-label').textContent = 'Loading…';
   var reader = new FileReader();
   reader.onload = function(e) {
-    var rows = clParseCSV(e.target.result);
+    var text = e.target.result;
+    var rows = clParseCSV(text);
     if (!rows) { document.getElementById('cl-file-label').textContent = 'Error reading file.'; return; }
+    // Save raw CSV to localStorage so it survives refresh
+    try { localStorage.setItem('cl_csv_raw', text); localStorage.setItem('cl_csv_name', file.name); } catch(e2) {}
     clLiveData = clBuildFromRows(rows);
+    // Clear stale panel states so new data renders cleanly
+    clActivePanels = {};
+    clOpenStates = {};
     var d = new Date();
     document.getElementById('cl-file-label').textContent =
       file.name + ' — ' + rows.length.toLocaleString() + ' rows loaded at ' +
@@ -2026,14 +2032,19 @@ function clTogglePanel(pid) {
   if (!el) return;
   var opening = el.style.display === 'none' || el.style.display === '';
   el.style.display = opening ? 'block' : 'none';
-  if (opening && !clActivePanels[pid]) {
+  if (opening) {
     var empKey = el.getAttribute('data-emp');
     var data = clGetData();
     var empData = data.emp_data[empKey];
-    if (empData) {
-      for (var r=0; r<=5; r++) {
-        if ((empData.rec[String(r)]||[]).length > 0) { clShowRec(pid, r); break; }
-      }
+    if (!empData) {
+      var k = Object.keys(data.emp_data).find(function(k){ return k.toUpperCase() === empKey.toUpperCase(); });
+      empData = k ? data.emp_data[k] : null;
+      if (k && empData) el.setAttribute('data-emp', k); // fix key for future lookups
+    }
+    if (!empData) return;
+    // Always show first available rec on open
+    for (var r=0; r<=5; r++) {
+      if ((empData.rec[String(r)]||[]).length > 0) { clShowRec(pid, r); break; }
     }
   }
 }
@@ -2210,7 +2221,19 @@ function clRender() {
     if (pdSel) pdSel.addEventListener('change', clRender);
     if (recSel) recSel.addEventListener('change', clRender);
     if (srchEl) srchEl.addEventListener('input', clRender);
-    // Populate static paydate filter on load
+    // Restore CSV from localStorage if available
+    try {
+      var saved = localStorage.getItem('cl_csv_raw');
+      var savedName = localStorage.getItem('cl_csv_name') || 'saved file';
+      if (saved) {
+        var rows = clParseCSV(saved);
+        if (rows && rows.length > 0) {
+          clLiveData = clBuildFromRows(rows);
+          var lbl = document.getElementById('cl-file-label');
+          if (lbl) lbl.textContent = savedName + ' — ' + rows.length.toLocaleString() + ' rows (restored from last session)';
+        }
+      }
+    } catch(e) {}
     clRepopulatePdFilter();
     clRender();
   }
