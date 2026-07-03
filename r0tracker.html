@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R0 Shift Test Tracker</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --surface: #1d2129;
+    --surface-2: #262b35;
+    --border: #333944;
+    --text: #e7e9ec;
+    --text-dim: #8b93a1;
+    --teal: #2dd4bf;
+    --amber: #f0a742;
+    --test-arm: #4f8ef7;
+    --control-arm: #7c8697;
+    --red: #e5646a;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { margin-bottom: 24px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 6px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); font-size: 13.5px; line-height: 1.5; max-width: 640px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 720px) { .form-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  label { display: block; font-size: 11.5px; color: var(--text-dim); margin-bottom: 5px; }
+  input, select, textarea {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-size: 13.5px;
+    font-family: var(--sans);
+  }
+  input[type="number"] { font-family: var(--mono); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--teal); }
+  .field { margin-bottom: 0; }
+  .span-2 { grid-column: span 2; }
+  .span-4 { grid-column: span 4; }
+
+  .btn {
+    background: var(--teal);
+    color: #0a1210;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 13.5px;
+    font-weight: 650;
+    cursor: pointer;
+    margin-top: 14px;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .btn.small { padding: 4px 10px; font-size: 12px; margin-top: 0; }
+
+  .msg { font-size: 12.5px; color: var(--teal); margin-top: 8px; min-height: 16px; }
+  .msg.err { color: var(--red); }
+
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  @media (max-width: 720px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .stat .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .stat .value { font-family: var(--mono); font-size: 22px; font-weight: 650; }
+  .stat .value.test { color: var(--test-arm); }
+  .stat .value.control { color: var(--control-arm); }
+  .stat .delta { font-size: 12px; margin-top: 4px; color: var(--text-dim); }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .chip.active { background: var(--teal); color: #0a1210; border-color: var(--teal); font-weight: 650; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    white-space: nowrap;
+  }
+  tbody tr:hover { background: var(--surface-2); }
+  .arm-tag {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 650;
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .arm-tag.test { background: rgba(79,142,247,0.15); color: var(--test-arm); }
+  .arm-tag.control { background: rgba(124,134,151,0.2); color: var(--control-arm); }
+  .after18 { color: var(--amber); font-weight: 650; }
+  .empty { color: var(--text-dim); font-size: 13px; text-align: center; padding: 24px 0; }
+  .table-scroll { overflow-x: auto; }
+  .del-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; }
+  .del-btn:hover { color: var(--red); }
+
+  canvas { max-width: 100%; }
+</style>
+</head>
+<body>
+
+<div id="setupBanner" style="display:none; max-width: 640px; margin: 60px auto; padding: 24px; background: #1d2129; border: 1px solid #f0a742; border-radius: 10px; font-family: -apple-system, sans-serif; color: #e7e9ec;">
+  <div style="font-size: 15px; font-weight: 650; color: #f0a742; margin-bottom: 8px;">Firebase not connected yet</div>
+  <div class="banner-msg" style="font-size: 13.5px; color: #8b93a1; line-height: 1.6;">
+    Open this file and paste your Firebase project's config values into the <code>firebaseConfig</code> object near the bottom of the &lt;script&gt; section, then reload.
+  </div>
+</div>
+
+<div class="wrap" id="mainApp" style="display:none;">
+
+  <header>
+    <div class="eyebrow">Collections · R0 Timing Test</div>
+    <h1>R0 Shift Test Tracker</h1>
+    <div class="sub">Log attempts, connects and drops by hour segment across the 202606–202608 cycles as you naturally work the queues. The tracker finds patterns in which hours connect and convert best — no need to artificially split days into "test" and "control." Synced live via Firebase.</div>
+  </header>
+
+  <div class="stats-row" id="statsRow"></div>
+
+  <div class="card">
+    <h2>Log an entry</h2>
+    <div class="form-grid">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="field">
+        <label>Cycle</label>
+        <select id="f-cycle">
+          <option value="202606">202606 (Jun 11–Jul 10)</option>
+          <option value="202607">202607 (Jul 11–Aug 10)</option>
+          <option value="202608">202608 (Aug 11–Sep 10)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Recency bucket</label>
+        <select id="f-bucket">
+          <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Schedule note (optional)</label>
+        <input type="text" id="f-arm" placeholder="e.g. extra agents pushed here">
+      </div>
+
+      <div class="field">
+        <label>Hour segment</label>
+        <select id="f-hour">
+          <option>Before 08</option><option>08-09</option><option>09-10</option><option>10-11</option>
+          <option>11-12</option><option>12-13</option><option>13-14</option><option>14-15</option>
+          <option>15-16</option><option>16-17</option><option>17-18</option><option>After 18:00</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Agents assigned</label>
+        <input type="number" id="f-agents" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Attempts</label>
+        <input type="number" id="f-attempts" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Connects</label>
+        <input type="number" id="f-connects" min="0" placeholder="0">
+      </div>
+
+      <div class="field">
+        <label>Drops (count)</label>
+        <input type="number" id="f-drops" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>Target drops (optional)</label>
+        <input type="number" id="f-target" min="0" placeholder="0">
+      </div>
+      <div class="field span-2">
+        <label>Notes (e.g. system/network issue)</label>
+        <input type="text" id="f-notes" placeholder="Optional">
+      </div>
+    </div>
+    <button class="btn" id="saveBtn">Save entry</button>
+    <div class="msg" id="formMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Import dashboard exports (native format)</h2>
+    <div class="sub" style="margin-bottom:14px;">Upload your exports exactly as they come off the dashboard — per-agent hourly attempts/connects, and the hourly drops sheet. Set the context once (date, cycle, arm, bucket) since the exports themselves don't carry that. Hours with no activity in your attempts/connects export are simply skipped; the drops sheet fills in the rest of the day.</div>
+
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="d-date">
+      </div>
+      <div class="field">
+        <label>Cycle</label>
+        <select id="d-cycle">
+          <option value="202606">202606</option>
+          <option value="202607">202607</option>
+          <option value="202608">202608</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Recency bucket</label>
+        <select id="d-bucket">
+          <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Schedule note (optional)</label>
+        <input type="text" id="d-arm" placeholder="e.g. extra agents pushed here">
+      </div>
+    </div>
+
+    <div class="form-grid" style="margin-bottom:8px;">
+      <div class="field span-2">
+        <label>Call attempts export (agent × hour)</label>
+        <input type="file" id="d-attempts" accept=".csv">
+      </div>
+      <div class="field span-2">
+        <label>Connects export (agent × hour)</label>
+        <input type="file" id="d-connects" accept=".csv">
+      </div>
+    </div>
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="field span-4">
+        <label>Hourly drops export (TIME_SEGMENT / target / actual)</label>
+        <input type="file" id="d-drops" accept=".csv">
+      </div>
+    </div>
+
+    <button class="btn" id="processDashBtn">Process & add to tracker</button>
+    <div class="msg" id="dashMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Import from CSV (manual row format)</h2>
+    <div class="sub" style="margin-bottom:14px;">Export your hourly attempts/connects/drops into a CSV with these exact column headers, then upload it here. Rows get appended to what's already logged — nothing gets overwritten.</div>
+    <div class="table-scroll" style="margin-bottom:14px;">
+      <table>
+        <thead>
+          <tr><th>date</th><th>cycle</th><th>arm</th><th>bucket</th><th>hour</th><th>agents</th><th>attempts</th><th>connects</th><th>drops</th><th>target</th><th>notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>2026-07-01</td><td>202607</td><td>test</td><td>R0</td><td>17-18</td>
+            <td>4</td><td>471</td><td>246</td><td>475</td><td>269</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); line-height:1.7; margin-bottom:14px;">
+      <b>date</b>: YYYY-MM-DD &nbsp;·&nbsp;
+      <b>cycle</b>: 202606, 202607, or 202608 &nbsp;·&nbsp;
+      <b>arm</b>: optional free text, e.g. "extra agents pushed" — leave blank if nothing unusual &nbsp;·&nbsp;
+      <b>bucket</b>: R0, R1, R2, or R3<br>
+      <b>hour</b>: Before 08, 08-09, 09-10, 10-11, 11-12, 12-13, 13-14, 14-15, 15-16, 16-17, 17-18, or After 18:00 &nbsp;·&nbsp;
+      <b>agents / attempts / connects / drops</b>: whole numbers &nbsp;·&nbsp;
+      <b>target</b>: number, leave blank if none &nbsp;·&nbsp;
+      <b>notes</b>: optional, leave blank if none
+    </div>
+    <button class="btn ghost" id="downloadTemplateBtn">Download blank template</button>
+    <input type="file" id="csvFile" accept=".csv" style="margin-top:14px; display:block; font-size:13px; color:var(--text-dim);">
+    <div class="msg" id="importMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Logged entries</h2>
+    <div class="filters" id="filterRow"></div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th><th>Cycle</th><th>Bucket</th><th>Hour</th>
+            <th>Agents</th><th>Attempts</th><th>Connects</th><th>Conn %</th>
+            <th>Drops</th><th>Target</th><th>Schedule note</th><th>Notes</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState" style="display:none;">No entries yet — log your first hour above.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>R0 connect rate by hour (all logged days)</h2>
+    <div style="position: relative; height: 260px;">
+      <canvas id="hourRateChart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>After-18:00 R0 drop share, by date — coloured by whether R0 was called late that day</h2>
+    <div style="position: relative; height: 280px;">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// ── Paste your Firebase project's config here (Project settings → Your apps → web app) ──
+const firebaseConfig = {
+  apiKey: "AIzaSyCvMvDyXVb_pt5sK2WvSpVVJSmxufneDUA",
+  authDomain: "r0-shift-tracker.firebaseapp.com",
+  projectId: "r0-shift-tracker",
+  storageBucket: "r0-shift-tracker.firebasestorage.app",
+  messagingSenderId: "512318211029",
+  appId: "1:512318211029:web:054732c60a065afe66335c"
+};
+// ───────────────────────────────────────────────────────────────────────────────────────
+
+let entries = [];
+let activeFilter = 'all';
+let chartInstance = null;
+let hourChartInstance = null;
+let db = null;
+const COLLECTION = 'tracker';
+const DOC_ID = 'entries';
+
+function isConfigured() {
+  return firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PASTE_');
+}
+
+function showSetupBanner(msg) {
+  const banner = document.getElementById('setupBanner');
+  banner.style.display = 'block';
+  if (msg) banner.querySelector('.banner-msg').textContent = msg;
+  document.getElementById('mainApp').style.display = 'none';
+}
+
+function initFirebase() {
+  if (!isConfigured()) {
+    showSetupBanner();
+    return;
+  }
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    document.getElementById('setupBanner').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+    db.collection(COLLECTION).doc(DOC_ID).onSnapshot(
+      docSnap => {
+        entries = (docSnap.exists && docSnap.data().entries) ? docSnap.data().entries : [];
+        render();
+      },
+      err => {
+        showSetupBanner('Connected, but could not read data (' + err.message + '). Check your Firestore rules allow read/write on tracker/entries.');
+      }
+    );
+  } catch (e) {
+    showSetupBanner('Could not connect to Firebase (' + e.message + '). Double-check your config values.');
+  }
+}
+
+async function saveEntries() {
+  if (!db) return;
+  try {
+    await db.collection(COLLECTION).doc(DOC_ID).set({ entries });
+  } catch (e) {
+    const msg = document.getElementById('formMsg');
+    if (msg) {
+      msg.textContent = 'Could not save to Firebase — check your connection and Firestore rules.';
+      msg.classList.add('err');
+    }
+  }
+}
+
+function fieldVal(id) { return document.getElementById(id).value; }
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('formMsg');
+  msg.classList.remove('err');
+  const date = fieldVal('f-date');
+  const attempts = Number(fieldVal('f-attempts')) || 0;
+  const connects = Number(fieldVal('f-connects')) || 0;
+  const drops = Number(fieldVal('f-drops')) || 0;
+
+  if (!date) {
+    msg.textContent = 'Pick a date first.';
+    msg.classList.add('err');
+    return;
+  }
+
+  const entry = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    date,
+    cycle: fieldVal('f-cycle'),
+    arm: fieldVal('f-arm'),
+    bucket: fieldVal('f-bucket'),
+    hour: fieldVal('f-hour'),
+    agents: Number(fieldVal('f-agents')) || 0,
+    attempts,
+    connects,
+    drops,
+    target: fieldVal('f-target') ? Number(fieldVal('f-target')) : null,
+    notes: fieldVal('f-notes') || ''
+  };
+
+  entries.push(entry);
+  await saveEntries();
+  msg.textContent = 'Saved.';
+  ['f-agents','f-attempts','f-connects','f-drops','f-target','f-notes'].forEach(id => document.getElementById(id).value = '');
+  render();
+});
+
+async function deleteEntry(id) {
+  entries = entries.filter(e => e.id !== id);
+  await saveEntries();
+  render();
+}
+
+function setFilter(f) {
+  activeFilter = f;
+  render();
+}
+
+function render() {
+  renderStats();
+  renderFilters();
+  renderTable();
+  renderChart();
+  renderHourRateChart();
+}
+
+function hourStartNum(label) {
+  if (label === 'Before 08') return 7;
+  if (label === 'After 18:00') return null;
+  return parseInt(label.split('-')[0], 10);
+}
+
+function connRateByHour(list) {
+  const byHour = {};
+  list.forEach(e => {
+    if (e.hour === 'After 18:00') return;
+    byHour[e.hour] = byHour[e.hour] || { a: 0, c: 0 };
+    byHour[e.hour].a += e.attempts;
+    byHour[e.hour].c += e.connects;
+  });
+  let best = null;
+  Object.entries(byHour).forEach(([h, v]) => {
+    if (!v.a) return;
+    const rate = v.c / v.a * 100;
+    if (!best || rate > best.rate) best = { hour: h, rate };
+  });
+  return { byHour, best };
+}
+
+function lateVsEarlyShare(list) {
+  const byDate = {};
+  list.forEach(e => {
+    byDate[e.date] = byDate[e.date] || { total: 0, after18: 0, latestCallHour: -1 };
+    byDate[e.date].total += e.drops;
+    if (e.hour === 'After 18:00') {
+      byDate[e.date].after18 += e.drops;
+    } else if (e.attempts > 0) {
+      const hs = hourStartNum(e.hour);
+      if (hs !== null && hs > byDate[e.date].latestCallHour) byDate[e.date].latestCallHour = hs;
+    }
+  });
+  const early = [], late = [];
+  Object.values(byDate).forEach(d => {
+    if (d.latestCallHour === -1 || d.total === 0) return;
+    const share = d.after18 / d.total;
+    (d.latestCallHour >= 14 ? late : early).push(share);
+  });
+  const avg = arr => arr.length ? (arr.reduce((s,x) => s+x, 0) / arr.length * 100) : null;
+  return { early: avg(early), late: avg(late), earlyDays: early.length, lateDays: late.length };
+}
+
+function renderStats() {
+  const statsRow = document.getElementById('statsRow');
+  const r0 = entries.filter(e => e.bucket === 'R0');
+  const { best } = connRateByHour(r0);
+  const split = lateVsEarlyShare(r0);
+  const fmt = v => v === null ? '—' : v.toFixed(1) + '%';
+
+  statsRow.innerHTML = `
+    <div class="stat">
+      <div class="label">Total entries logged</div>
+      <div class="value">${entries.length}</div>
+      <div class="delta">${new Set(entries.map(e=>e.date)).size} days covered</div>
+    </div>
+    <div class="stat">
+      <div class="label">R0 best connect-rate hour</div>
+      <div class="value test">${best ? best.hour : '—'}</div>
+      <div class="delta">${best ? fmt(best.rate) + ' connect rate' : 'not enough data yet'}</div>
+    </div>
+    <div class="stat">
+      <div class="label">After-18:00 share — R0 called late (14:00+)</div>
+      <div class="value test">${fmt(split.late)}</div>
+      <div class="delta">vs called early only: ${fmt(split.early)} (${split.lateDays} late day(s), ${split.earlyDays} early day(s))</div>
+    </div>
+    <div class="stat">
+      <div class="label">Notes flagged</div>
+      <div class="value" style="color:var(--amber)">${entries.filter(e=>e.notes).length}</div>
+      <div class="delta">possible anomalies logged</div>
+    </div>
+  `;
+}
+
+function renderFilters() {
+  const filterRow = document.getElementById('filterRow');
+  const opts = [['all','All'], ['R0','R0'], ['R1','R1'], ['R2','R2'], ['R3','R3']];
+  filterRow.innerHTML = opts.map(([val,label]) =>
+    `<div class="chip ${activeFilter===val?'active':''}" data-f="${val}">${label}</div>`
+  ).join('');
+  filterRow.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => setFilter(chip.dataset.f));
+  });
+}
+
+function filteredEntries() {
+  if (activeFilter === 'all') return entries;
+  return entries.filter(e => e.bucket === activeFilter);
+}
+
+function renderTable() {
+  const body = document.getElementById('tableBody');
+  const empty = document.getElementById('emptyState');
+  const list = [...filteredEntries()].sort((a,b) => b.date.localeCompare(a.date) || a.hour.localeCompare(b.hour));
+
+  if (!list.length) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  body.innerHTML = list.map(e => {
+    const rate = e.attempts ? (e.connects/e.attempts*100).toFixed(0)+'%' : '—';
+    const isAfter18 = e.hour === 'After 18:00';
+    return `
+      <tr>
+        <td>${e.date}</td>
+        <td>${e.cycle}</td>
+        <td>${e.bucket}</td>
+        <td class="${isAfter18 ? 'after18' : ''}">${e.hour}</td>
+        <td>${e.agents}</td>
+        <td>${e.attempts}</td>
+        <td>${e.connects}</td>
+        <td>${rate}</td>
+        <td class="${isAfter18 ? 'after18' : ''}">${e.drops}</td>
+        <td>${e.target ?? '—'}</td>
+        <td style="font-family:var(--sans); white-space:normal; max-width:140px;">${e.arm || ''}</td>
+        <td style="font-family:var(--sans); white-space:normal; max-width:160px;">${e.notes || ''}</td>
+        <td><button class="del-btn" data-id="${e.id}" title="Delete">✕</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  body.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteEntry(btn.dataset.id));
+  });
+}
+
+function renderChart() {
+  const r0 = entries.filter(e => e.bucket === 'R0');
+  const byDate = {};
+  r0.forEach(e => {
+    byDate[e.date] = byDate[e.date] || { total: 0, after18: 0, latestCallHour: -1 };
+    byDate[e.date].total += e.drops;
+    if (e.hour === 'After 18:00') {
+      byDate[e.date].after18 += e.drops;
+    } else if (e.attempts > 0) {
+      const hs = hourStartNum(e.hour);
+      if (hs !== null && hs > byDate[e.date].latestCallHour) byDate[e.date].latestCallHour = hs;
+    }
+  });
+
+  const dates = Object.keys(byDate).sort();
+  const lateData = dates.map(d => {
+    const rec = byDate[d];
+    if (rec.latestCallHour < 14 || !rec.total) return null;
+    return +(rec.after18 / rec.total * 100).toFixed(1);
+  });
+  const earlyData = dates.map(d => {
+    const rec = byDate[d];
+    if (rec.latestCallHour === -1 || rec.latestCallHour >= 14 || !rec.total) return null;
+    return +(rec.after18 / rec.total * 100).toFixed(1);
+  });
+
+  if (chartInstance) chartInstance.destroy();
+  const ctx = document.getElementById('trendChart');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [
+        { label: 'Called late (14:00+)', data: lateData, borderColor: '#4f8ef7', backgroundColor: '#4f8ef7', spanGaps: false, pointRadius: 6, borderWidth: 2, showLine: false },
+        { label: 'Called early only (before 14:00)', data: earlyData, borderColor: '#7c8697', backgroundColor: '#7c8697', spanGaps: false, pointRadius: 6, borderWidth: 2, showLine: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8b93a1' } } },
+      scales: {
+        y: { beginAtZero: true, ticks: { color: '#8b93a1', callback: v => v+'%' }, grid: { color: '#333944' } },
+        x: { ticks: { color: '#8b93a1' }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderHourRateChart() {
+  const r0 = entries.filter(e => e.bucket === 'R0');
+  const { byHour } = connRateByHour(r0);
+  const HOUR_ORDER = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18'];
+  const labels = HOUR_ORDER.filter(h => byHour[h] && byHour[h].a > 0);
+  const rates = labels.map(h => +(byHour[h].c / byHour[h].a * 100).toFixed(1));
+
+  if (hourChartInstance) hourChartInstance.destroy();
+  const ctx = document.getElementById('hourRateChart');
+  hourChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: 'Connect rate', data: rates, backgroundColor: '#2dd4bf', borderRadius: 4, maxBarThickness: 40 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { color: '#8b93a1', callback: v => v+'%' }, grid: { color: '#333944' } },
+        x: { ticks: { color: '#8b93a1' }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// --- CSV import ---
+const VALID_CYCLES = ['202606','202607','202608'];
+const VALID_BUCKETS = ['R0','R1','R2','R3'];
+const VALID_HOURS = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','After 18:00'];
+
+document.getElementById('downloadTemplateBtn').addEventListener('click', () => {
+  const header = 'date,cycle,arm,bucket,hour,agents,attempts,connects,drops,target,notes\n';
+  const example = '2026-07-01,202607,test,R0,17-18,4,471,246,475,269,\n';
+  const blob = new Blob([header + example], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'r0_tracker_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('csvFile').addEventListener('change', (evt) => {
+  const file = evt.target.files[0];
+  const importMsg = document.getElementById('importMsg');
+  importMsg.classList.remove('err');
+  if (!file) return;
+
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: async (results) => {
+      let added = 0;
+      const errors = [];
+
+      results.data.forEach((row, i) => {
+        const rowNum = i + 2;
+        const date = (row.date || '').trim();
+        const cycle = (row.cycle || '').trim();
+        const arm = (row.arm || '').trim();
+        const bucket = (row.bucket || '').trim().toUpperCase();
+        const hour = (row.hour || '').trim();
+
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${rowNum}: bad or missing date`); return; }
+        if (!VALID_CYCLES.includes(cycle)) { errors.push(`Row ${rowNum}: cycle must be 202606/202607/202608`); return; }
+        if (!VALID_BUCKETS.includes(bucket)) { errors.push(`Row ${rowNum}: bucket must be R0-R3`); return; }
+        if (!VALID_HOURS.includes(hour)) { errors.push(`Row ${rowNum}: unrecognised hour segment "${hour}"`); return; }
+
+        entries.push({
+          id: Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + i,
+          date, cycle, arm, bucket, hour,
+          agents: Number(row.agents) || 0,
+          attempts: Number(row.attempts) || 0,
+          connects: Number(row.connects) || 0,
+          drops: Number(row.drops) || 0,
+          target: row.target && row.target.trim() !== '' ? Number(row.target) : null,
+          notes: (row.notes || '').trim()
+        });
+        added++;
+      });
+
+      await saveEntries();
+      render();
+
+      if (added && !errors.length) {
+        importMsg.textContent = `Imported ${added} row(s) successfully.`;
+      } else if (added && errors.length) {
+        importMsg.textContent = `Imported ${added} row(s). Skipped ${errors.length}: ${errors.slice(0,3).join('; ')}${errors.length > 3 ? '…' : ''}`;
+        importMsg.classList.add('err');
+      } else {
+        importMsg.textContent = `No rows imported. ${errors.slice(0,3).join('; ')}`;
+        importMsg.classList.add('err');
+      }
+      evt.target.value = '';
+    },
+    error: (err) => {
+      importMsg.textContent = 'Could not read that file — make sure it\'s a valid CSV.';
+      importMsg.classList.add('err');
+    }
+  });
+});
+
+// --- Dashboard-native import ---
+function hourLabel(h) {
+  if (h < 8) return 'Before 08';
+  if (h >= 18) return 'After 18:00';
+  const pad = x => String(x).padStart(2, '0');
+  return `${pad(h)}-${pad(h + 1)}`;
+}
+
+function segmentToLabel(seg) {
+  seg = (seg || '').trim();
+  if (/^before/i.test(seg)) return 'Before 08';
+  if (/^after/i.test(seg)) return 'After 18:00';
+  const m = seg.match(/^(\d{1,2})/);
+  if (m) return hourLabel(parseInt(m[1], 10));
+  return null;
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
+// Parses an agent x hour matrix export -> { hourLabel: { sum, agentCount } }
+function parseAgentHourMatrix(text) {
+  const parsed = Papa.parse(text.trim(), { skipEmptyLines: true });
+  const rows = parsed.data;
+  if (!rows.length) return {};
+  const header = rows[0];
+  const hourCols = [];
+  for (let j = 1; j < header.length; j++) {
+    const h = parseInt(String(header[j]).trim(), 10);
+    if (!isNaN(h)) hourCols.push({ col: j, label: hourLabel(h) });
+  }
+  const out = {};
+  hourCols.forEach(hc => out[hc.label] = { sum: 0, agentCount: 0 });
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length < 2) continue;
+    hourCols.forEach(hc => {
+      const raw = (row[hc.col] || '').toString().trim();
+      if (raw === '' ) return;
+      if (raw === '-') return; // agent had no activity that hour
+      const num = parseInt(raw, 10);
+      if (!isNaN(num)) {
+        out[hc.label].sum += num;
+        out[hc.label].agentCount += 1;
+      }
+    });
+  }
+  return out;
+}
+
+// Parses the TIME_SEGMENT / target / actual drops export -> { hourLabel: { target, actual } }
+function parseDropsExport(text) {
+  const parsed = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
+  const out = {};
+  parsed.data.forEach(row => {
+    const label = segmentToLabel(row.TIME_SEGMENT);
+    if (!label) return;
+    const targetRaw = (row['Hourly target'] || '').toString().trim();
+    const actualRaw = (row['Hourly actual'] || '').toString().trim();
+    out[label] = {
+      target: (targetRaw === '' || targetRaw.toLowerCase() === 'null') ? null : Number(targetRaw),
+      actual: actualRaw === '' ? 0 : Number(actualRaw)
+    };
+  });
+  return out;
+}
+
+document.getElementById('processDashBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('dashMsg');
+  msg.classList.remove('err');
+
+  const date = fieldVal('d-date');
+  if (!date) { msg.textContent = 'Pick a date first.'; msg.classList.add('err'); return; }
+  const cycle = fieldVal('d-cycle');
+  const arm = fieldVal('d-arm');
+  const bucket = fieldVal('d-bucket');
+
+  const attemptsFile = document.getElementById('d-attempts').files[0];
+  const connectsFile = document.getElementById('d-connects').files[0];
+  const dropsFile = document.getElementById('d-drops').files[0];
+
+  if (!attemptsFile && !connectsFile && !dropsFile) {
+    msg.textContent = 'Upload at least one file.';
+    msg.classList.add('err');
+    return;
+  }
+
+  try {
+    const attemptsByHour = attemptsFile ? parseAgentHourMatrix(await readFileAsText(attemptsFile)) : {};
+    const connectsByHour = connectsFile ? parseAgentHourMatrix(await readFileAsText(connectsFile)) : {};
+    const dropsByHour = dropsFile ? parseDropsExport(await readFileAsText(dropsFile)) : {};
+
+    const allHours = new Set([
+      ...Object.keys(attemptsByHour),
+      ...Object.keys(connectsByHour),
+      ...Object.keys(dropsByHour)
+    ]);
+
+    if (!allHours.size) {
+      msg.textContent = 'Could not find any recognisable hour columns in those files.';
+      msg.classList.add('err');
+      return;
+    }
+
+    const HOUR_ORDER = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','After 18:00'];
+    const sortedHours = [...allHours].sort((a,b) => HOUR_ORDER.indexOf(a) - HOUR_ORDER.indexOf(b));
+
+    let count = 0;
+    sortedHours.forEach((hour, i) => {
+      const a = attemptsByHour[hour];
+      const c = connectsByHour[hour];
+      const d = dropsByHour[hour];
+      entries.push({
+        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + i,
+        date, cycle, arm, bucket, hour,
+        agents: a ? a.agentCount : 0,
+        attempts: a ? a.sum : 0,
+        connects: c ? c.sum : 0,
+        drops: d ? d.actual : 0,
+        target: d ? d.target : null,
+        notes: ''
+      });
+      count++;
+    });
+
+    await saveEntries();
+    render();
+    msg.textContent = `Added ${count} hour segment(s) for ${bucket} on ${date}.`;
+
+    ['d-attempts','d-connects','d-drops'].forEach(id => document.getElementById(id).value = '');
+  } catch (err) {
+    msg.textContent = 'Something went wrong reading those files — check they\'re unedited exports.';
+    msg.classList.add('err');
+  }
+});
+
+// set default date to today
+document.getElementById('f-date').valueAsDate = new Date();
+document.getElementById('d-date').valueAsDate = new Date();
+
+initFirebase();
+</script>
+</body>
+</html>
