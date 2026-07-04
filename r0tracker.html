@@ -115,9 +115,14 @@
   .analysis-picker {
     display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
     font-size: 12.5px; color: var(--text-dim); flex-wrap: wrap;
+    background: var(--surface); border: 1px dashed var(--border); border-radius: 8px;
+    padding: 10px 14px;
   }
   .analysis-picker select {
     width: auto; padding: 6px 10px; font-weight: 650; color: var(--teal);
+  }
+  .analysis-picker .picker-label {
+    font-weight: 650; color: var(--text); text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em;
   }
 
   .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -193,14 +198,14 @@
   </header>
 
   <div class="analysis-picker">
-    <span>Analysing bucket:</span>
+    <span class="picker-label">📊 Report view only:</span>
     <select id="analysisBucket">
       <option value="R0">R0</option>
       <option value="R1">R1</option>
       <option value="R2">R2</option>
       <option value="R3">R3</option>
     </select>
-    <span>— applies to the stats and charts below only, not to logged entries themselves.</span>
+    <span>This only changes which bucket the stats/charts below are showing. It does <b>not</b> affect where new data gets saved — that's controlled by the separate "Recency bucket" field in each logging/import card further down.</span>
   </div>
 
   <div class="stats-row" id="statsRow"></div>
@@ -221,7 +226,7 @@
         </select>
       </div>
       <div class="field">
-        <label>Recency bucket</label>
+        <label>Recency bucket (sets what gets saved)</label>
         <select id="f-bucket">
           <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
         </select>
@@ -287,7 +292,7 @@
         </select>
       </div>
       <div class="field">
-        <label>Recency bucket</label>
+        <label>Recency bucket (sets what gets saved)</label>
         <select id="d-bucket">
           <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
         </select>
@@ -348,6 +353,40 @@
     <button class="btn ghost" id="downloadTemplateBtn">Download blank template</button>
     <input type="file" id="csvFile" accept=".csv" style="margin-top:14px; display:block; font-size:13px; color:var(--text-dim);">
     <div class="msg" id="importMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Fix mistagged entries</h2>
+    <div class="sub" style="margin-bottom:14px;">Reassign a batch of entries from one bucket to another — useful if a whole day got saved under the wrong recency bucket. Leave date/cycle blank to match across all of them.</div>
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="field">
+        <label>Date (optional)</label>
+        <input type="date" id="rb-date">
+      </div>
+      <div class="field">
+        <label>Cycle (optional)</label>
+        <select id="rb-cycle">
+          <option value="">Any cycle</option>
+          <option value="202606">202606</option>
+          <option value="202607">202607</option>
+          <option value="202608">202608</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>From bucket</label>
+        <select id="rb-from">
+          <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>To bucket</label>
+        <select id="rb-to">
+          <option>R1</option><option>R0</option><option>R2</option><option>R3</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn ghost" id="reassignBtn">Reassign matching entries</button>
+    <div class="msg" id="reassignMsg"></div>
   </div>
 
   <div class="card">
@@ -505,6 +544,45 @@ async function deleteEntry(id) {
   await saveEntries();
   render();
 }
+
+document.getElementById('reassignBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('reassignMsg');
+  msg.classList.remove('err');
+
+  const date = fieldVal('rb-date');
+  const cycle = fieldVal('rb-cycle');
+  const from = fieldVal('rb-from');
+  const to = fieldVal('rb-to');
+
+  if (from === to) {
+    msg.textContent = '"From" and "To" bucket are the same — nothing to do.';
+    msg.classList.add('err');
+    return;
+  }
+
+  const matches = entries.filter(e =>
+    e.bucket === from &&
+    (!date || e.date === date) &&
+    (!cycle || e.cycle === cycle)
+  );
+
+  if (!matches.length) {
+    msg.textContent = `No ${from} entries found matching those filters.`;
+    msg.classList.add('err');
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Reassign ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} from ${from} to ${to}` +
+    (date ? ` (date ${date})` : '') + (cycle ? ` (cycle ${cycle})` : '') + '?'
+  );
+  if (!confirmed) return;
+
+  matches.forEach(e => e.bucket = to);
+  await saveEntries();
+  render();
+  msg.textContent = `Reassigned ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} from ${from} to ${to}.`;
+});
 
 function setFilter(f) {
   activeFilter = f;
