@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paydate Dashboard 202606</title>
+<title>Paydate Dashboard 202607</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#111;padding:1.25rem}
@@ -203,7 +203,7 @@ td{padding:6px 14px;vertical-align:middle}
   <div class="mgmt-section">
     <div class="mgmt-section-title">Load Payments from File</div>
     <p style="font-size:12px;color:#666;margin-bottom:12px">
-      Tap <strong>Choose File</strong> to open your folder and select your <strong>Payments by Employer</strong> CSV or Excel sheet (columns: <code>Employer, 202606</code>). The dashboard updates instantly everywhere once loaded.
+      Tap <strong>Choose File</strong> to open your folder and select your <strong>Payments by Employer</strong> CSV or Excel sheet (columns: <code>Employer, 202607</code>). The dashboard updates instantly everywhere once loaded.
     </p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <label style="display:inline-flex;align-items:center;gap:8px;background:#111;color:#fff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">
@@ -213,7 +213,7 @@ td{padding:6px 14px;vertical-align:middle}
       <span id="pmts-file-name" style="font-size:12px;color:#888;font-style:italic">No file selected</span>
     </div>
     <p style="font-size:11px;color:#aaa;margin-top:8px">Or paste CSV text directly:</p>
-    <textarea id="pmts-paste" rows="3" placeholder="Employer,202606&#10;UGANDA POLICE FORCE,1689&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none;margin-top:4px"></textarea>
+    <textarea id="pmts-paste" rows="3" placeholder="Employer,202607&#10;UGANDA POLICE FORCE,1689&#10;..." style="width:100%;font-size:12px;font-family:monospace;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;outline:none;margin-top:4px"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <button class="btn-add" onclick="loadPaymentsCSV()">⬆ Load Pasted Text</button>
       <span id="pmts-status" style="font-size:12px;color:#888"></span>
@@ -285,20 +285,57 @@ td{padding:6px 14px;vertical-align:middle}
 
 <!-- ===== CYCLE MANAGER TAB ===== -->
 <div id="tab-cycles" class="tab-pane">
-  <div class="mgmt-section">
-    <div class="mgmt-section-title">Active Cycle</div>
-    <div id="active-cycle-card"></div>
-    <div style="margin-top:12px">
-      <button class="btn-add btn-danger" onclick="confirmCloseCycle()">Close Current Cycle &amp; Start Next →</button>
-      <span style="font-size:12px;color:#999;margin-left:10px">Cycle closes on the 10th. Next cycle runs 11th to 10th of following month.</span>
+
+  <!-- ── Cycle Settings ─────────────────────────────────── -->
+  <div class="mgmt-section" style="max-width:520px">
+    <div class="mgmt-section-title">⚙️ Cycle Settings</div>
+    <p style="font-size:12px;color:#888;margin-bottom:14px">
+      Set the active cycle here. All paydates, day-of-week labels, signals, and the calling list window update automatically.
+      Cycles always run <strong>11th → 10th</strong> of the following month.
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div>
+        <label style="font-size:12px;color:#555;font-weight:600;display:block;margin-bottom:5px">Cycle Month</label>
+        <select id="cs-month" onchange="csPreview()" style="width:100%;font-size:13px;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;outline:none">
+          <option value="1">January</option>
+          <option value="2">February</option>
+          <option value="3">March</option>
+          <option value="4">April</option>
+          <option value="5">May</option>
+          <option value="6">July</option>
+          <option value="7" selected>July</option>
+          <option value="8">August</option>
+          <option value="9">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#555;font-weight:600;display:block;margin-bottom:5px">Cycle Year</label>
+        <select id="cs-year" onchange="csPreview()" style="width:100%;font-size:13px;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;outline:none">
+          <option value="2026" selected>2026</option>
+          <option value="2027">2027</option>
+          <option value="2028">2028</option>
+        </select>
+      </div>
     </div>
+
+    <div id="cs-preview" style="background:#f8f9fb;border:1px solid #e8e8e8;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;line-height:1.8;color:#444"></div>
+
+    <button onclick="csApply()" style="background:#1e3a5f;color:#fff;border:none;border-radius:6px;padding:9px 22px;font-size:13px;font-weight:600;cursor:pointer">
+      ✓ Apply Cycle Settings
+    </button>
+    <span id="cs-saved-msg" style="font-size:12px;color:#27500A;margin-left:12px;display:none">✓ Saved — dashboard updated</span>
   </div>
-  <div class="mgmt-section">
-    <div class="mgmt-section-title">Archived Cycles</div>
-    <div class="archive-list" id="archive-list">
-      <div style="text-align:center;color:#bbb;padding:24px;font-size:13px">No archived cycles yet</div>
-    </div>
+
+  <!-- ── Current Cycle Summary ──────────────────────────── -->
+  <div class="mgmt-section" style="max-width:520px">
+    <div class="mgmt-section-title">Current Cycle Summary</div>
+    <div id="cs-summary" style="font-size:13px;color:#444;line-height:2"></div>
   </div>
+
 </div><!-- end tab-cycles -->
 
 <div id="tab-insights" class="tab-pane">
@@ -309,7 +346,7 @@ td{padding:6px 14px;vertical-align:middle}
 
 <div id="tab-calling" class="tab-pane">
   <div style="margin-bottom:1rem">
-    <div style="font-size:13px;font-weight:600;margin-bottom:6px">📋 Calling List — 202606 Cycle</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px">📋 Calling List — 202607 Cycle</div>
     <div style="font-size:12px;color:#888;margin-bottom:10px">Upload today's Employee List CSV each morning. The list recalculates automatically — clients who paid drop off, recency changes reflect.</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
       <label style="display:inline-flex;align-items:center;gap:8px;background:#1e3a5f;color:#fff;font-size:12px;font-weight:600;padding:7px 14px;border-radius:6px;cursor:pointer">
@@ -384,8 +421,6 @@ var _now = new Date();
 var _d = _now.getDate();
 var _m = _now.getMonth() + 1; // 1-indexed
 var TODAY = _d;
-// LF = Last Friday of the current cycle month (June for 202606)
-// Find last Friday of June 2026
 // ── CYCLE CONFIG: July 11 – Aug 10, 2026 ────────────────────────────────────
 // Cycle month = July (month index 6). Paydates 11-31 = July, 1-10 = August.
 var _cycleYear = 2026, _cycleMonth = 7; // July
@@ -542,6 +577,55 @@ function getTrendIcon(tr) {
   return '';
 }
 
+
+// ========================================================
+// CLIENT-BASED SIGNAL ENGINE
+// When Employee List CSV is uploaded, signals use:
+//   penetration = clients_paid / clients_due * 100
+// where clients_paid = clients_due - rec0_remaining
+// Fallback to count/avg when no CSV loaded
+// ========================================================
+
+function getClientPenetr(empName) {
+  // Returns client penetration % or null if no CSV loaded
+  if (!window.CL_EMP_TOTALS) return null;
+  var t = window.CL_EMP_TOTALS[empName.toUpperCase()];
+  if (!t || t.total === 0) return null;
+  var paid = t.total - t.rec0;
+  return Math.round(paid / t.total * 100);
+}
+
+function getClientsDue(empName) {
+  if (!window.CL_EMP_TOTALS) return null;
+  var t = window.CL_EMP_TOTALS[empName.toUpperCase()];
+  return t ? t.total : null;
+}
+
+function getClientsPaid(empName) {
+  if (!window.CL_EMP_TOTALS) return null;
+  var t = window.CL_EMP_TOTALS[empName.toUpperCase()];
+  if (!t) return null;
+  return t.total - t.rec0;
+}
+
+function getLiveSignalPct(r) {
+  // Primary: client penetration if CSV loaded
+  var cp = getClientPenetr(r[0]);
+  if (cp !== null) return cp;
+  // Fallback: count vs weighted avg
+  return getLivePct(r);
+}
+
+function getLiveSignalLabel(r) {
+  // Returns string showing what the signal is based on
+  if (window.CL_EMP_TOTALS && getClientsDue(r[0]) !== null) {
+    var paid = getClientsPaid(r[0]);
+    var due  = getClientsDue(r[0]);
+    return paid + '/' + due + ' clients paid';
+  }
+  return getLiveCount(r) + ' payments (no CSV)';
+}
+
 function getSignal(pct, d) {
   if (pct === null) return "new";
   if (d === null) return "unknown";
@@ -582,6 +666,26 @@ DATA.forEach(function(r) { if (!pdSeen[r[4]]) { pdSeen[r[4]] = 1; allPds.push(r[
 allPds.sort(function(a, b) { return pdSort(a) - pdSort(b); });
 allPds.forEach(function(p) { openState[p] = true; });
 
+function rebuildPdFilter() {
+  // Rebuild both pd-f and cmp-pd-f with current cycle date labels
+  var pds = [];
+  var seen = {};
+  DATA.forEach(function(r){ if(r[4] && !seen[r[4]]){ seen[r[4]]=1; pds.push(r[4]); } });
+  pds.sort(function(a,b){ return pdSort(a)-pdSort(b); });
+  ['pd-f','cmp-pd-f'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var cur = sel.value;
+    sel.innerHTML = '<option value="all">All paydates</option>';
+    pds.forEach(function(pd){
+      var o = document.createElement('option');
+      o.value = pd; o.textContent = pdLabel(pd);
+      sel.appendChild(o);
+    });
+    sel.value = (cur && cur !== 'all') ? cur : 'all';
+  });
+}
+
 var sel = document.getElementById("pd-f");
 allPds.forEach(function(pd) {
   var o = document.createElement("option");
@@ -606,7 +710,16 @@ function getLivePct(r) {
 
 function getNoteIcon(empName) {
   if (typeof EMPLOYER_NOTES === 'undefined') return '';
-  var note = EMPLOYER_NOTES[empName.toUpperCase()];
+  var note = EMPLOYER_NOTES[empName.toUpperCase()] || '';
+  // Append live client signal if CSV loaded
+  var cp = getClientPenetr(empName);
+  if (cp !== null) {
+    var paid = getClientsPaid(empName);
+    var due  = getClientsDue(empName);
+    var clientStr = paid + '/' + due + ' clients paid (' + cp + '%)';
+    if (note) { note = note + ' · ' + clientStr; }
+    else { note = clientStr; }
+  }
   if (!note) return '';
   var color = '#1e3a5f';
   if (note.indexOf('not boosted') !== -1) color = '#856404';
@@ -626,38 +739,38 @@ function render() {
     if (vol && liveCount < vol) return false;
     if (srch && r[0].toLowerCase().indexOf(srch) === -1) return false;
     if (pdF !== "all" && r[4] !== pdF) return false;
-    var livePct = getLivePct(r);
-    var s = getSignal(r[2] === 0 ? null : livePct, daysTo(r[4]));
+    var sp = getLiveSignalPct(r);  // client-based when CSV loaded
+    var s = getSignal(r[2] === 0 ? null : sp, daysTo(r[4]));
     if (sig === "early" && s !== "early") return false;
     if (sig === "weak" && s !== "weak") return false;
     if (sig === "new" && s !== "new") return false;
     return true;
   });
 
-  var ec = filtered.filter(function(r){ var p=getLivePct(r); return getSignal(r[2]===0?null:p,daysTo(r[4]))==="early"; }).length;
-  var wc = filtered.filter(function(r){ var p=getLivePct(r); return getSignal(r[2]===0?null:p,daysTo(r[4]))==="weak"; }).length;
+  var ec = filtered.filter(function(r){ var p=getLiveSignalPct(r); return getSignal(r[2]===0?null:p,daysTo(r[4]))==="early"; }).length;
+  var wc = filtered.filter(function(r){ var p=getLiveSignalPct(r); return getSignal(r[2]===0?null:p,daysTo(r[4]))==="weak"; }).length;
   var tp = filtered.reduce(function(s,r){ return s+getLiveCount(r); },0);
 
-  var cDue = filtered.reduce(function(s,r){ return s+cdTotal(r[0]); },0);
-  var cDelinq = filtered.reduce(function(s,r){ var d=cdGet(r[0]); return s+(d?d.total-(d.rec['0']||[]).length:0); },0);
-  // Get client totals from calling list upload if available
+  // Client totals from calling list upload
   var clTotals = window.CL_EMP_TOTALS || null;
-  var cDue = 0, cDelinq = 0;
+  var cDue = 0, cDelinq = 0, cPaid = 0;
   if (clTotals) {
     filtered.forEach(function(r) {
       var t = clTotals[r[0].toUpperCase()];
-      if (t) { cDue += t.total; cDelinq += t.delinq; }
+      if (t) { cDue += t.total; cDelinq += t.delinq; cPaid += (t.total - t.rec0); }
     });
   }
+  var portPct = cDue > 0 ? Math.round(cPaid/cDue*100) : 0;
   var clientStats = clTotals
-    ? '<div class="stat"><div class="stat-label">&#x1F465; Clients due</div><div class="stat-val" style="color:#1e3a5f">' + cDue.toLocaleString() + '</div></div>' +
+    ? '<div class="stat"><div class="stat-label">&#x1F465; Clients paid</div><div class="stat-val" style="color:#27500A">' + cPaid.toLocaleString() + ' <span style="font-size:13px;color:#aaa">/ '+cDue.toLocaleString()+'</span></div></div>' +
+      '<div class="stat"><div class="stat-label">Portfolio penetration</div><div class="stat-val" style="color:#1e3a5f">' + portPct + '%</div></div>' +
       '<div class="stat"><div class="stat-label">&#x1F534; Delinquent Rec1+</div><div class="stat-val" style="color:#A32D2D">' + cDelinq.toLocaleString() + '</div></div>'
-    : '<div class="stat"><div class="stat-label" style="color:#aaa">&#x1F465; Clients due</div><div class="stat-val" style="color:#ccc;font-size:13px">Upload CSV</div></div>';
+    : '<div class="stat"><div class="stat-label" style="color:#aaa">&#x1F465; Client penetration</div><div class="stat-val" style="color:#ccc;font-size:12px">Upload CSV &#8593;</div></div>';
 
   document.getElementById("stats").innerHTML =
     '<div class="stat"><div class="stat-label">Employers shown</div><div class="stat-val">' + filtered.length + '</div></div>' +
     '<div class="stat"><div class="stat-label">Early signals</div><div class="stat-val" style="color:#27500A">' + ec + '</div></div>' +
-    '<div class="stat"><div class="stat-label">Weak collection</div><div class="stat-val" style="color:#A32D2D">' + wc + '</div></div>' +
+    '<div class="stat"><div class="stat-label">Weak signals</div><div class="stat-val" style="color:#A32D2D">' + wc + '</div></div>' +
     '<div class="stat"><div class="stat-label">Total payments</div><div class="stat-val">' + tp.toLocaleString() + '</div></div>' +
     clientStats;
 
@@ -676,7 +789,13 @@ function render() {
     var tbody = rows.map(function(r) {
       var d = daysTo(r[4]);
       var liveCount = getLiveCount(r);
-      var pct = getLivePct(r);
+      // Override display with client info if CSV loaded
+      var clientDue  = getClientsDue(r[0]);
+      var clientPaid = getClientsPaid(r[0]);
+      var liveDisplay = clientDue !== null
+        ? clientPaid + '<span style="color:#aaa;font-weight:400">/' + clientDue + '</span>'
+        : liveCount.toString();
+      var pct = getLiveSignalPct(r);
       var bar = Math.min(100, pct||0);
       var s = getSignal(r[2]===0?null:pct, d);
       var bc = s==="early"?(pct>=100?"#E24B4A":"#27500A"):s==="weak"?"#E24B4A":"#aaa";
@@ -692,7 +811,7 @@ function render() {
         "<td class='name'>" + safeName + getTrendIcon(r[10]) + getNoteIcon(r[0]) + "</td>" +
         "<td style='white-space:nowrap'>" + getBadge(r[2]===0?null:pct,d) + " " + getTierBadge(r[5]) + "</td>" +
 
-        "<td class='nr' style='font-weight:600'>" + liveCount + "</td>" +
+        "<td class='nr' style='font-weight:600'>" + liveDisplay + "</td>" +
         "<td class='nr' style='color:#999'>" + (r[2]>0?r[2].toFixed(1):"&mdash;") + "</td>" +
         "<td class='nr'>" + barHtml + "<span style='font-size:12px;margin-left:4px'>" + pctDisp + "</span></td>" +
         "<td class='nr' style='color:" + penColor + ";font-size:12px'>" + penDisp + repeatHtml + "</td>";
@@ -712,7 +831,7 @@ function render() {
     var wrap = document.createElement("div");
     wrap.className = "tbl-wrap";
     var tbl = document.createElement("table");
-    tbl.innerHTML = "<thead><tr><th>Employer</th><th>Signal / Tier</th><th class='nr'>Payments</th><th class='nr'>Avg cycle</th><th class='nr'>% of avg</th><th class='nr'>Penetration</th></tr></thead>";
+    tbl.innerHTML = "<thead><tr><th>Employer</th><th>Signal / Tier</th><th class='nr' id='col-pmts-hdr'>Paid / Due</th><th class='nr'>Avg cycle</th><th class='nr'>% of avg</th><th class='nr'>Penetration</th></tr></thead>";
     var tbodyEl = document.createElement("tbody");
     tbody.forEach(function(tr){ tbodyEl.appendChild(tr); });
     tbl.appendChild(tbodyEl);
@@ -770,7 +889,8 @@ function cmpDaysTo(pd) {
   if (pd === "LF") return LF_DAY - TODAY;
   var n = parseInt(pd);
   if (isNaN(n)) return null;
-  return n <= 10 ? (30 - TODAY) + n : n - TODAY;
+  // July cycle: paydates 11-31 in July, 1-10 in August
+  return n <= 10 ? (31 - TODAY) + n : n - TODAY;
 }
 
 function getSignalPill(pct, d) {
@@ -837,12 +957,19 @@ function renderCompare() {
     var d = cmpDaysTo(pd);
     var isKnown = BOOSTED_SET[nameUp] || false;
 
-    // Use actual payments from CSV, fall back to dashboard value
+    // Use client penetration if CSV loaded, else payment count
     var actual = (ACTUAL_PMTS[nameUp] !== undefined) ? ACTUAL_PMTS[nameUp] : r[1];
-    var actualPct = (avg > 0 && actual > 0) ? Math.round(actual / avg * 100) : (actual > 0 ? 999 : 0);
-    var sig = getSignalFromActual(actual, avg, d);
+    var clientDue  = getClientsDue(name);
+    var clientPaid = getClientsPaid(name);
+    var usingClients = clientDue !== null && clientDue > 0;
+    var actualPct = usingClients
+      ? Math.round(clientPaid / clientDue * 100)
+      : (avg > 0 && actual > 0) ? Math.round(actual / avg * 100) : (actual > 0 ? 999 : 0);
+    var sig = usingClients
+      ? getSignalFromActual(clientPaid, clientDue, d)
+      : getSignalFromActual(actual, avg, d);
     var hasEarlySignal = (sig === 'early' || sig === 'strongearly' || sig === 'wayearly');
-    var hasActivity = actual > 0;
+    var hasActivity = usingClients ? clientPaid > 0 : actual > 0;
 
     if (vol && actual < vol) return;
     if (srch && name.toLowerCase().indexOf(srch) === -1) return;
@@ -1127,7 +1254,7 @@ function saveStore(key, val) {
 // CYCLE DEFINITIONS
 // ========================================================
 var DEFAULT_CYCLES = [
-  { id:"202606", label:"June 2026", startLabel:"11 Jun", endLabel:"10 Jul", status:"active", finalCount: null }
+  { id:"202607", label:"July 2026", startLabel:"11 Jul", endLabel:"10 Aug", status:"active", finalCount: null }
 ];
 function getCycles() { return loadStore(STORE_KEY_CYCLES, DEFAULT_CYCLES); }
 function saveCycles(c) { saveStore(STORE_KEY_CYCLES, c); }
@@ -1157,7 +1284,7 @@ function getSnapshots() { return loadStore(STORE_KEY_PAYMENTS+':'+getActiveCycle
 function saveSnapshots(snaps) { saveStore(STORE_KEY_PAYMENTS+':'+getActiveCycle().id, snaps); }
 
 function parsePaymentsCSV(raw) {
-  // Accepts: Employer,202606\nNAME,count\n...
+  // Accepts: Employer,202607\nNAME,count\n...
   // Returns {ok, total, data, colName, error}
   var lines = raw.replace(/\r/g,'').split('\n').map(function(l){return l.trim();}).filter(Boolean);
   if (lines.length < 2) return {ok:false, error:'Need at least a header row and one data row.'};
@@ -1417,9 +1544,20 @@ function renderCyclesTab() {
     archEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:24px;font-size:13px">No archived cycles yet</div>';
   } else {
     archEl.innerHTML = closed.slice().reverse().map(function(c){
-      return '<div class="cycle-card"><div class="cycle-card-title">'+c.label+' <span class="cycle-badge cb-closed">Closed</span></div>' +
-        '<div class="cycle-card-meta">'+c.startLabel+' &ndash; '+c.endLabel+
-        (c.finalCount !== null ? ' &middot; Final total: <strong>'+c.finalCount.toLocaleString()+'</strong>' : '') + '</div></div>';
+      var clientLine = (c.portPct !== null && c.portPct !== undefined)
+        ? '<div class="cycle-card-meta" style="margin-top:3px">&#x1F465; Client penetration: <strong>'+c.totalPaid.toLocaleString()+'/'+c.totalDue.toLocaleString()+' ('+c.portPct+'%)</strong></div>'
+        : '';
+      var pmtLine = c.finalCount !== null
+        ? '<div class="cycle-card-meta">Payments: <strong>'+c.finalCount.toLocaleString()+'</strong></div>'
+        : '';
+      var dateLine = c.closedAt
+        ? '<div class="cycle-card-meta" style="color:#bbb;font-size:11px">Closed: '+c.closedAt+'</div>'
+        : '';
+      return '<div class="cycle-card">' +
+        '<div class="cycle-card-title">'+c.label+' <span class="cycle-badge cb-closed">Closed</span></div>' +
+        '<div class="cycle-card-meta">'+c.startLabel+' &ndash; '+c.endLabel+'</div>' +
+        pmtLine + clientLine + dateLine +
+        '</div>';
     }).join('');
   }
 }
@@ -1446,50 +1584,121 @@ function closeModal() {
 
 function doCloseCycle() {
   closeModal();
-  var cycles = getCycles();
-  var active = getActiveCycle();
-  var snaps = getSnapshots();
-  var latest = snaps.length ? snaps[snaps.length-1].total : null;
+  var cycles   = getCycles();
+  var active   = getActiveCycle();
+  var snaps    = getSnapshots();
+  var latest   = snaps.length ? snaps[snaps.length-1].total : null;
+  var now      = new Date();
+  var closedAt = now.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
+                 ' ' + now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
 
-  // *** AUTO-AVERAGE: compute per-employer average from all snapshots in this cycle ***
-  // Use the LAST snapshot's employer counts as the final cycle total per employer
-  // and update the DATA avg column so % of avg recalculates correctly next cycle
+  // ── 1. Snapshot final employer payment counts ──────────────────────────────
+  var finalPayments = {};
   if (snaps.length) {
     var finalSnap = snaps[snaps.length-1];
-    DATA.forEach(function(r) {
-      var key = r[0].toUpperCase();
-      if (finalSnap.data[key] !== undefined) {
-        var finalCount = finalSnap.data[key];
-        // Weighted rolling average: blend prior avg with this cycle's final count
-        // If prior avg was 0 or null, just use the new count
-        var priorAvg = r[2] || 0;
-        var newAvg = priorAvg > 0 ? Math.round((priorAvg + finalCount) / 2 * 10) / 10 : finalCount;
-        r[2] = newAvg;
-        // Recompute pct based on new avg and current payments
-        r[3] = newAvg > 0 ? Math.round(finalCount / newAvg * 100) : null;
-      }
+    Object.keys(finalSnap.data || {}).forEach(function(k){ finalPayments[k] = finalSnap.data[k]; });
+  }
+  // Also capture from ACTUAL_PMTS if available
+  if (typeof ACTUAL_PMTS !== 'undefined') {
+    Object.keys(ACTUAL_PMTS).forEach(function(k){
+      if (!finalPayments[k]) finalPayments[k] = ACTUAL_PMTS[k];
     });
-    // Persist updated averages in localStorage for this session
-    saveStore('ug_data_avgs', DATA.map(function(r){ return [r[0], r[2]]; }));
   }
 
+  // ── 2. Snapshot client penetration per employer ───────────────────────────
+  var finalClients = {};
+  if (window.CL_EMP_TOTALS) {
+    Object.keys(window.CL_EMP_TOTALS).forEach(function(k){
+      var t = window.CL_EMP_TOTALS[k];
+      finalClients[k] = {
+        due:     t.total,
+        paid:    t.total - t.rec0,
+        delinq:  t.delinq,
+        pct:     t.total > 0 ? Math.round((t.total - t.rec0) / t.total * 100) : 0
+      };
+    });
+  }
+
+  // ── 3. Portfolio-level summary ────────────────────────────────────────────
+  var totalDue  = 0, totalPaid = 0;
+  Object.values(finalClients).forEach(function(c){ totalDue += c.due; totalPaid += c.paid; });
+  var portPct = totalDue > 0 ? Math.round(totalPaid/totalDue*100) : null;
+
+  // ── 4. Update weighted averages for next cycle ────────────────────────────
+  DATA.forEach(function(r) {
+    var key = r[0].toUpperCase();
+    var finalCount = finalPayments[key];
+    if (finalCount !== undefined && finalCount > 0) {
+      var priorAvg = r[2] || 0;
+      // Weighted: give final cycle count weight 2, prior avg weight 3
+      var newAvg = priorAvg > 0
+        ? Math.round(((priorAvg * 3) + (finalCount * 2)) / 5 * 10) / 10
+        : finalCount;
+      r[2] = newAvg;
+      r[3] = newAvg > 0 ? Math.round(finalCount / newAvg * 100) : 0;
+    }
+  });
+  saveStore('ug_data_avgs', DATA.map(function(r){ return [r[0], r[2]]; }));
+
+  // ── 5. Archive the closed cycle with full data ────────────────────────────
   for (var i=0; i<cycles.length; i++) {
     if (cycles[i].id === active.id) {
-      cycles[i].status = 'closed';
-      cycles[i].finalCount = latest;
-      // Store final snapshot data for historical reference
-      if (snaps.length) cycles[i].finalData = snaps[snaps.length-1].data;
+      cycles[i].status      = 'closed';
+      cycles[i].closedAt    = closedAt;
+      cycles[i].finalCount  = latest;
+      cycles[i].finalData   = finalPayments;
+      cycles[i].clientData  = finalClients;
+      cycles[i].portPct     = portPct;
+      cycles[i].totalDue    = totalDue;
+      cycles[i].totalPaid   = totalPaid;
       break;
     }
   }
-  var nid = nextCycleId(active.id);
+
+  // ── 6. Open next cycle ────────────────────────────────────────────────────
+  var nid   = nextCycleId(active.id);
   var ninfo = cycleStartEnd(nid);
-  cycles.push({ id: nid, label: ninfo.label, startLabel: ninfo.startLabel, endLabel: ninfo.endLabel, status: 'active', finalCount: null });
+  cycles.push({
+    id: nid, label: ninfo.label,
+    startLabel: ninfo.startLabel, endLabel: ninfo.endLabel,
+    status: 'active', finalCount: null
+  });
   saveCycles(cycles);
+
+  // ── 7. Clear this cycle's calling list CSV so next cycle starts fresh ─────
+  try {
+    localStorage.removeItem('cl_csv_raw');
+    localStorage.removeItem('cl_csv_name');
+    localStorage.removeItem('cl_csv_time');
+  } catch(e) {}
+  clLiveData = null;
+  window.CL_EMP_TOTALS = null;
+
+  // ── 8. Auto-update Cycle Settings to next cycle ───────────────────────────
+  var nm = parseInt(nid.slice(4,6));
+  var ny = parseInt(nid.slice(0,4));
+  try {
+    localStorage.setItem('cs_cycle_mo', nm);
+    localStorage.setItem('cs_cycle_yr', ny);
+  } catch(e) {}
+  var moSel = document.getElementById('cs-month');
+  var yrSel = document.getElementById('cs-year');
+  if (moSel) moSel.value = String(nm);
+  if (yrSel) yrSel.value = String(ny);
+
   updatePageTitle();
+  rebuildPdFilter();
   renderCyclesTab();
-  render(); // refresh All Employers with updated averages
-  alert('Cycle closed. Averages updated automatically. Now in: '+ninfo.label+' ('+ninfo.startLabel+' – '+ninfo.endLabel+')');
+  render();
+  if (typeof csApply === 'function') setTimeout(csApply, 100);
+
+  alert('✓ ' + active.label + ' closed and archived.
+' +
+    (portPct !== null ? 'Final client penetration: ' + totalPaid + '/' + totalDue + ' (' + portPct + '%)
+' : '') +
+    'Now in: ' + ninfo.label + ' (' + ninfo.startLabel + ' – ' + ninfo.endLabel + ')
+' +
+    'Calling list cleared for new cycle. Cycle Settings updated automatically.');
 }
 
 function updatePageTitle() {
@@ -1503,11 +1712,11 @@ function updatePageTitle() {
     var now = new Date();
     var dayName = days[now.getDay()];
     var dateStr = now.getDate()+' '+months[now.getMonth()]+' ('+dayName+')';
-    // Cycle day: day 1 = June 11, day 30 = July 10
-    var cycleStart = new Date(2026, 5, 11); // June 11, 2026
+    // Cycle day: day 1 = July 11, day 31 = Aug 10
+    var cycleStart = new Date(2026, 6, 11); // July 11, 2026
     var diffMs = now - cycleStart;
     var cycleDay = Math.floor(diffMs / (1000*60*60*24)) + 1;
-    var cycleDayStr = (cycleDay >= 1 && cycleDay <= 30) ? ' \u00b7 Day '+cycleDay+' of 30' : '';
+    var cycleDayStr = (cycleDay >= 1 && cycleDayay <= 30) ? ' \u00b7 Day '+cycleDay+' of 30' : '';
     subEl.textContent = 'Today: '+dateStr+cycleDayStr+' \u00b7 Cycle: '+cycle.startLabel+' \u2013 '+cycle.endLabel;
   }
 }
@@ -1558,9 +1767,19 @@ function renderInsights() {
   var boostedSet = {};
   boostedList.forEach(function(b){ boostedSet[b.toUpperCase()] = true; });
 
-  var totalJun = DATA.reduce(function(s,r){ return s+getLiveCount(r); }, 0);
-  var totalAvg = DATA.reduce(function(s,r){ return s+r[2]; }, 0);
-  var cyclePct = totalAvg > 0 ? Math.round(totalJun/totalAvg*100) : 0;
+  // Use client penetration for portfolio-level metric when CSV loaded
+  var usingClientMetric = !!window.CL_EMP_TOTALS;
+  var totalCurr, totalDue, cyclePct;
+  if (usingClientMetric) {
+    totalDue  = Object.values(window.CL_EMP_TOTALS).reduce(function(s,t){ return s+t.total; }, 0);
+    totalCurr = Object.values(window.CL_EMP_TOTALS).reduce(function(s,t){ return s+(t.total-t.rec0); }, 0);
+    cyclePct  = totalDue > 0 ? Math.round(totalCurr/totalDue*100) : 0;
+  } else {
+    totalCurr = DATA.reduce(function(s,r){ return s+getLiveCount(r); }, 0);
+    var totalAvg = DATA.reduce(function(s,r){ return s+r[2]; }, 0);
+    cyclePct  = totalAvg > 0 ? Math.round(totalCurr/totalAvg*100) : 0;
+    totalDue  = totalAvg;
+  }
 
   // ── SECTION 1: Boosted but not paying ──
   var boostedNotPaying = DATA.filter(function(r){
@@ -1576,7 +1795,7 @@ function renderInsights() {
     return r[2] >= 50 && getLiveCount(r) < r[2]*0.3 && r[5] >= 3;
   }).sort(function(a,b){ return b[2]-a[2]; }).slice(0,20);
 
-  // ── SECTION 3: Always-pay, zero June ──
+  // ── SECTION 3: Always-pay, zero this cycle ──
   var alwaysZero = DATA.filter(function(r){
     return r[5]===5 && getLiveCount(r)===0;
   }).sort(function(a,b){ return b[2]-a[2]; }).slice(0,20);
@@ -1648,7 +1867,7 @@ function renderInsights() {
   html += tbl(
     [{label:'Employer'},{label:'Jun pmts',right:true},{label:'Avg/cycle',right:true},{label:'% of avg',right:true},{label:'Penetration',right:true}],
     boostedLow.map(function(r){
-      var pct = getLivePct(r);
+      var pct = getLiveSignalPct(r);
       var pen = r[6]>0 ? Math.min(r[8],100).toFixed(0)+'%' : '—';
       return [esc(r[0]), getLiveCount(r), r[2].toFixed(1), (pct||0)+'%', pen];
     }),
@@ -1667,8 +1886,8 @@ function renderInsights() {
     'None — all large employers on track!'
   );
 
-  // Section 3: Always-pay zero June
-  html += '<div class="mgmt-section-title" style="color:#555;margin-top:16px;margin-bottom:8px">⏳ Always paid before — zero in June so far (top 20 by avg)</div>';
+  // Section 3: Always-pay zero this cycle
+  html += '<div class="mgmt-section-title" style="color:#555;margin-top:16px;margin-bottom:8px">⏳ Always paid before — zero this cycle so far (top 20 by avg)</div>';
   html += tbl(
     [{label:'Employer'},{label:'Avg/cycle',right:true},{label:'Active clients',right:true},{label:'Penetration hist.',right:true}],
     alwaysZero.map(function(r){
@@ -1720,14 +1939,14 @@ function renderInsights() {
     if (pd === 'LD') return LD_DAY;
     var n = parseInt(pd);
     if (isNaN(n)) return 99;
-    return n > 10 ? n : n + 30; // July dates come after June
+    return n > 10 ? n : n + 30; // July dates come after July 10
   }
   var sortedPds = Object.keys(pdBuckets).sort(function(a,b){ return pdCycleVal(a)-pdCycleVal(b); });
 
   // What is today and tomorrow in cycle terms
-  var todayVal = (_m === 6) ? _d : _d + 30; // June day or July day+30
+  var todayVal = (_m === 6) ? _d : _d + 31; // July day or Aug day+31
   var tomorrowVal = todayVal + 1;
-  var tomorrowLabel = (tomorrowVal <= 30) ? tomorrowVal + ' June' : (tomorrowVal - 30) + ' July';
+  var tomorrowLabel = (tomorrowVal <= 30) ? tomorrowVal + ' July' : (tomorrowVal - 31) + ' Aug';
 
   // Running cumulative expected vs actual
   var cumAvg = 0, cumJun = 0;
@@ -1784,7 +2003,7 @@ function renderInsights() {
     var bg = row.isToday ? 'background:#FFF8E1' : row.isTomorrow ? 'background:#F0F7FF' : '';
     var pctColor = row.isPast ? (row.pct>=70?'#27500A':row.pct>=40?'#7A5C00':'#791F1F') : '#aaa';
     var pdDisp = row.pd==='LD' ? 'Last Day (30 Jun)' : row.pd==='LF' ? 'Last Fri (26 Jun)' :
-      (parseInt(row.pd)>10 ? row.pd+' June' : row.pd+' July');
+      (parseInt(row.pd)>10 ? row.pd+' July' : row.pd+' Aug');
     var label = row.isToday ? '<strong>'+pdDisp+' — TODAY</strong>' :
       row.isTomorrow ? '<strong>'+pdDisp+' — TOMORROW</strong>' : pdDisp;
     tlHtml += '<tr style="'+bg+'">' +
@@ -1843,7 +2062,7 @@ function renderInsights() {
   }).sort(function(a,b){ return b.gap - a.gap; }).slice(0, 25);
 
   html += '<div class="mgmt-section-title" style="color:#1a3a5c;margin-top:16px;margin-bottom:6px">💰 Untapped potential — large employer base, room still to collect</div>';
-  html += '<p style="font-size:12px;color:#666;margin-bottom:8px">Employers with 50+ active clients where June penetration is below 60%. These still have clients who haven\'t paid yet this cycle — worth a push before cycle closes.</p>';
+  html += '<p style="font-size:12px;color:#666;margin-bottom:8px">Employers with 50+ active clients where current cycle penetration is below 60%. These still have clients who haven\'t paid yet this cycle — worth a push before cycle closes.</p>';
   html += tbl(
     [{label:'Employer'},{label:'Active clients',right:true},{label:'Jun pmts',right:true},{label:'Gap (unpaid)',right:true},{label:'Penetration',right:true},{label:'Avg/cycle',right:true},{label:'Tier'}],
     untapped.map(function(item){
@@ -1891,15 +2110,19 @@ function clLastFriday(yr, mo) {
   return d;
 }
 function clResolvePaydate(pdStr) {
-  if (pdStr === 'LD') return clLastDayOfMonth(2026, 7);  // June 30
-  if (pdStr === 'LF') return clLastFriday(2026, 7);       // June 26
+  var yr = (window._CYCLE_YR) || 2026;
+  var mo = (window._CYCLE_MO) || 7;
+  if (typeof csResolvePaydate === 'function') return csResolvePaydate(pdStr, yr, mo);
+  if (pdStr === 'LD') return clLastDayOfMonth(yr, mo);
+  if (pdStr === 'LF') return clLastFriday(yr, mo);
   var day = parseInt(pdStr);
   if (isNaN(day)) return null;
-  // Cycle: July 11 – Aug 10
-  var july = new Date(2026, 6, day); // month 0-indexed: 6=July
-  if (july >= CL_CYCLE_START && july <= CL_CYCLE_END) return july;
-  var aug = new Date(2026, 7, day);  // 7=August
-  if (aug >= CL_CYCLE_START && aug <= CL_CYCLE_END) return aug;
+  var nextMo = mo === 12 ? 1 : mo + 1;
+  var nextYr = mo === 12 ? yr + 1 : yr;
+  var d1 = new Date(yr, mo - 1, day);
+  if (d1 >= CL_CYCLE_START && d1 <= CL_CYCLE_END) return d1;
+  var d2 = new Date(nextYr, nextMo - 1, day);
+  if (d2 >= CL_CYCLE_START && d2 <= CL_CYCLE_END) return d2;
   return null;
 }
 function clDateStr(d) {
@@ -2317,6 +2540,179 @@ function clClearStorage() {
     document.addEventListener('DOMContentLoaded', wireCallingFilters);
   } else {
     wireCallingFilters();
+  }
+})();
+
+
+// ========================================================
+// CYCLE SETTINGS — apply from UI
+// ========================================================
+var MONTH_NAMES = ['January','February','March','April','May','June',
+                   'July','August','September','October','November','December'];
+var MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var DAY_SHORT   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function csLastDay(yr, mo) {
+  // mo is 1-indexed
+  return new Date(yr, mo, 0).getDate();
+}
+function csLastFriday(yr, mo) {
+  // mo is 1-indexed
+  var d = new Date(yr, mo - 1, csLastDay(yr, mo));
+  while (d.getDay() !== 5) d = new Date(d.getFullYear(), d.getMonth(), d.getDate()-1);
+  return d;
+}
+function csResolvePaydate(pdStr, cycleYr, cycleMo) {
+  // Returns JS Date within cycle window
+  // Cycle: cycleMo 11 → (cycleMo+1) 10
+  var nextMo = cycleMo === 12 ? 1 : cycleMo + 1;
+  var nextYr = cycleMo === 12 ? cycleYr + 1 : cycleYr;
+  if (pdStr === 'LD') return new Date(cycleYr, cycleMo - 1, csLastDay(cycleYr, cycleMo));
+  if (pdStr === 'LF') return csLastFriday(cycleYr, cycleMo);
+  var day = parseInt(pdStr);
+  if (isNaN(day)) return null;
+  // 11-lastday → current month, 1-10 → next month
+  if (day >= 11) {
+    var d1 = new Date(cycleYr, cycleMo - 1, day);
+    if (!isNaN(d1.getTime()) && d1.getDate() === day) return d1;
+  } else {
+    return new Date(nextYr, nextMo - 1, day);
+  }
+  return null;
+}
+
+function csApply() {
+  var mo = parseInt(document.getElementById('cs-month').value);
+  var yr = parseInt(document.getElementById('cs-year').value);
+  if (!mo || !yr) return;
+
+  var nextMo = mo === 12 ? 1 : mo + 1;
+  var nextYr = mo === 12 ? yr + 1 : yr;
+  var lastDay = csLastDay(yr, mo);
+  var lastFri = csLastFriday(yr, mo);
+
+  // ── Update global cycle vars ──────────────────────────────
+  window._CYCLE_YR  = yr;
+  window._CYCLE_MO  = mo;
+  LD_DAY = lastDay;
+  LF_DAY = lastFri.getDate();
+  TODAY  = new Date().getDate();   // always real today
+
+  // ── Update _resolvePaydate to use new cycle ───────────────
+  window._resolvePaydate = function(pd) {
+    return csResolvePaydate(pd, yr, mo);
+  };
+
+  // ── Save to localStorage so it persists ──────────────────
+  try {
+    localStorage.setItem('cs_cycle_mo', mo);
+    localStorage.setItem('cs_cycle_yr', yr);
+  } catch(e) {}
+
+  // ── Update cycle label in page title area ─────────────────
+  var titleEl = document.getElementById('page-title');
+  if (titleEl) {
+    var cycleId = String(yr) + (mo < 10 ? '0' : '') + String(mo);
+    titleEl.childNodes[0].textContent = cycleId + ' Cycle — Employers by Paydate ';
+  }
+
+  // ── Update calling list cycle vars ────────────────────────
+  window.CL_CYCLE_START = new Date(yr, mo - 1, 11);
+  window.CL_CYCLE_END   = new Date(nextYr, nextMo - 1, 10);
+  window.CL_TODAY       = new Date();
+  window.CL_TODAY_STR   = CL_TODAY.toISOString().slice(0,10);
+
+  // ── Re-render everything ──────────────────────────────────
+  if (typeof rebuildPdFilter === 'function') rebuildPdFilter();
+  if (typeof render === 'function') render();
+  if (typeof renderInsights === 'function') renderInsights();
+  if (typeof clRepopulatePdFilter === 'function') {
+    clRepopulatePdFilter();
+    clRender();
+  }
+
+  // ── Show saved message ────────────────────────────────────
+  var msg = document.getElementById('cs-saved-msg');
+  if (msg) {
+    msg.style.display = 'inline';
+    setTimeout(function(){ msg.style.display = 'none'; }, 3000);
+  }
+
+  csUpdateSummary(yr, mo, lastDay, lastFri);
+}
+
+function csUpdateSummary(yr, mo, lastDay, lastFri) {
+  var nextMo = mo === 12 ? 1 : mo + 1;
+  var nextYr = mo === 12 ? yr + 1 : yr;
+  var cycleId = String(yr) + (mo < 10 ? '0' : '') + String(mo);
+  var startDate = new Date(yr, mo - 1, 11);
+  var endDate   = new Date(nextYr, nextMo - 1, 10);
+
+  var nowD = new Date();
+  var cycleDay = Math.floor((nowD - startDate) / 86400000) + 1;
+  var daysLeft = Math.floor((endDate - nowD) / 86400000);
+
+  var lfDate = csLastFriday(yr, mo);
+  var ldDate = new Date(yr, mo - 1, lastDay);
+
+  var el = document.getElementById('cs-summary');
+  if (!el) return;
+  el.innerHTML =
+    '<div><strong>Cycle:</strong> ' + cycleId + ' &nbsp;(' + MONTH_NAMES[mo-1] + ' ' + yr + ')</div>' +
+    '<div><strong>Window:</strong> ' + DAY_SHORT[startDate.getDay()] + ' 11 ' + MONTH_SHORT[mo-1] + ' – ' + DAY_SHORT[endDate.getDay()] + ' 10 ' + MONTH_SHORT[nextMo-1] + ' ' + nextYr + '</div>' +
+    '<div><strong>Today:</strong> Day ' + cycleDay + ' of 31 &nbsp;&middot;&nbsp; ' + daysLeft + ' days remaining</div>' +
+    '<div><strong>LD (Last Day):</strong> ' + DAY_SHORT[ldDate.getDay()] + ' ' + lastDay + ' ' + MONTH_SHORT[mo-1] + '</div>' +
+    '<div><strong>LF (Last Fri):</strong> ' + DAY_SHORT[lfDate.getDay()] + ' ' + lfDate.getDate() + ' ' + MONTH_SHORT[mo-1] + '</div>';
+}
+
+function csPreview() {
+  var mo = parseInt(document.getElementById('cs-month').value);
+  var yr = parseInt(document.getElementById('cs-year').value);
+  if (!mo || !yr) return;
+  var nextMo = mo === 12 ? 1 : mo + 1;
+  var nextYr = mo === 12 ? yr + 1 : yr;
+  var lastDay = csLastDay(yr, mo);
+  var lastFri = csLastFriday(yr, mo);
+  var startDate = new Date(yr, mo - 1, 11);
+  var endDate   = new Date(nextYr, nextMo - 1, 10);
+
+  // Sample 5 paydates to show how they resolve
+  var samples = ['11','15','25','LD','LF','5'].map(function(pd) {
+    var d = csResolvePaydate(pd, yr, mo);
+    if (!d) return '';
+    return '<span style="display:inline-block;background:#f0f4ff;border:1px solid #d0d8f0;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px">' +
+      'Paydate ' + pd + ' → ' + DAY_SHORT[d.getDay()] + ' ' + d.getDate() + ' ' + MONTH_SHORT[d.getMonth()] +
+      '</span>';
+  }).join(' ');
+
+  var el = document.getElementById('cs-preview');
+  if (!el) return;
+  el.innerHTML =
+    '<div style="margin-bottom:6px"><strong>' + MONTH_NAMES[mo-1] + ' ' + yr + ' cycle</strong> &nbsp;&middot;&nbsp; ' +
+    DAY_SHORT[startDate.getDay()] + ' 11 ' + MONTH_SHORT[mo-1] + ' – ' + DAY_SHORT[endDate.getDay()] + ' 10 ' + MONTH_SHORT[nextMo-1] + ' ' + nextYr + '</div>' +
+    '<div style="margin-bottom:6px">LD = <strong>' + DAY_SHORT[new Date(yr,mo-1,lastDay).getDay()] + ' ' + lastDay + ' ' + MONTH_SHORT[mo-1] + '</strong> &nbsp;&nbsp; LF = <strong>' + DAY_SHORT[lastFri.getDay()] + ' ' + lastFri.getDate() + ' ' + MONTH_SHORT[mo-1] + '</strong></div>' +
+    '<div style="line-height:2">' + samples + '</div>';
+}
+
+// Restore saved cycle on page load
+(function csRestore() {
+  try {
+    var mo = parseInt(localStorage.getItem('cs_cycle_mo'));
+    var yr = parseInt(localStorage.getItem('cs_cycle_yr'));
+    if (mo && yr) {
+      var moSel = document.getElementById('cs-month');
+      var yrSel = document.getElementById('cs-year');
+      if (moSel) moSel.value = String(mo);
+      if (yrSel) yrSel.value = String(yr);
+      // Apply silently on load
+      setTimeout(function(){ csApply(); }, 100);
+    } else {
+      // Show preview for default (July 2026)
+      setTimeout(csPreview, 100);
+      setTimeout(function(){ csUpdateSummary(2026,7,31,csLastFriday(2026,7)); }, 100);
+    }
+  } catch(e) {
+    setTimeout(csPreview, 100);
   }
 })();
 
