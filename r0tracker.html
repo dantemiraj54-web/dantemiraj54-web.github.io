@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,6 +6,7 @@
 <title>Deal Sealers — Target Pace Tracker</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
   html, body { margin:0; padding:0; }
   body, body * { box-sizing: border-box; }
@@ -106,6 +106,19 @@
   .footnote { font-size: 11.5px; color: var(--ink-soft); margin-top: 10px; }
   .setup-banner { background:#FFF6E5; border:1px solid #F0D9A6; color:#7A5300; border-radius:12px; padding:16px 18px; margin-bottom:20px; font-size:13px; line-height:1.5; }
   .setup-banner code { background:#fff; padding:1px 5px; border-radius:4px; }
+
+  .auth-row { display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .auth-pill { display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:#fff; opacity:0.85; }
+  .auth-pill button { background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); color:#fff; border-radius:7px; padding:5px 11px; font-size:12px; font-weight:600; cursor:pointer; }
+  .auth-pill button:hover { background: rgba(255,255,255,0.22); }
+  .login-toggle { background:none; border:1px solid rgba(255,255,255,0.3); color:#fff; opacity:0.85; border-radius:7px; padding:5px 12px; font-size:12px; font-weight:600; cursor:pointer; }
+  .login-toggle:hover { opacity:1; background: rgba(255,255,255,0.1); }
+  .login-form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  .login-form input { border:1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.08); color:#fff; border-radius:7px; padding:7px 10px; font-size:12.5px; width:170px; }
+  .login-form input::placeholder { color: rgba(255,255,255,0.55); }
+  .login-form button { background:#fff; color:var(--navy); border:none; border-radius:7px; padding:7px 14px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .login-error { font-size:12px; color:#FF9A73; margin-top:6px; }
+  .view-only-note { color: var(--ink-soft); font-size:13px; background: var(--base-bg); border-radius:10px; padding:12px 14px; }
 </style>
 </head>
 <body>
@@ -125,9 +138,11 @@ const firebaseConfig = {
 
 const CONFIG_IS_PLACEHOLDER = firebaseConfig.apiKey === "YOUR_API_KEY";
 let db = null;
+let auth = null;
 if (!CONFIG_IS_PLACEHOLDER) {
   firebase.initializeApp(firebaseConfig);
   db = firebase.database();
+  auth = firebase.auth();
 }
 
 (function(){
@@ -200,6 +215,9 @@ if (!CONFIG_IS_PLACEHOLDER) {
     logs: {},
     histDates: [],
     connected: false,
+    isAdmin: false,
+    loginOpen: false,
+    loginError: "",
   };
 
   const app = document.getElementById('app');
@@ -348,6 +366,21 @@ if (!CONFIG_IS_PLACEHOLDER) {
           <div class="eyebrow">Deal Sealers &middot; Target Pace Tracker</div>
           <div class="headline">Target: UGX ${fmt(state.target)} per agent &middot; cycle ends ${state.cycleEnd}</div>
           <div class="conn-pill ${db ? 'ok' : 'bad'}"><span class="dot"></span>${db ? 'Connected to Firebase' : 'Not connected'}</div>
+          <div class="auth-row">
+            ${state.isAdmin ? `
+              <div class="auth-pill">&#128274; Signed in as admin <button id="logoutBtn">Sign out</button></div>
+            ` : `
+              <button class="login-toggle" id="loginToggleBtn">${state.loginOpen ? 'Cancel' : 'Admin sign in'}</button>
+            `}
+          </div>
+          ${(!state.isAdmin && state.loginOpen) ? `
+            <div class="login-form">
+              <input type="email" id="loginEmail" placeholder="Admin email">
+              <input type="password" id="loginPassword" placeholder="Password">
+              <button id="loginSubmitBtn">Sign in</button>
+            </div>
+            ${state.loginError ? `<div class="login-error">${state.loginError}</div>` : ''}
+          ` : ''}
           <div class="headstat-row">
             <div class="headstat hit"><div class="num">${hitCount}</div><div class="lbl">hit daily pace</div></div>
             <div class="headstat miss"><div class="num">${missCount}</div><div class="lbl">missed daily pace</div></div>
@@ -355,6 +388,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
           </div>
         </div>
 
+        ${state.isAdmin ? `
         <div class="card">
           <h2>Log today's standings</h2>
           <div class="sub">Paste or upload the day's CSV of <strong>cumulative</strong> totals (Consultant, Total) &mdash; the same format your daily export already comes in.</div>
@@ -389,6 +423,12 @@ Milly Nakkazi,5300000
           </div>
           <div class="status-msg" id="statusMsg"></div>
         </div>
+        ` : `
+        <div class="card">
+          <h2>Log today's standings</h2>
+          <div class="view-only-note">You're viewing in read-only mode. Only the signed-in admin can log or edit CSV data &mdash; you'll see updates here automatically as soon as they're logged.</div>
+        </div>
+        `}
 
         <div class="card">
           <h2>Standings &mdash; ${state.date}</h2>
@@ -437,26 +477,62 @@ Milly Nakkazi,5300000
       </div>
     `;
 
-    document.getElementById('dateInput').addEventListener('change', async (e) => {
+    const loginToggleBtn = document.getElementById('loginToggleBtn');
+    if (loginToggleBtn) {
+      loginToggleBtn.addEventListener('click', () => {
+        state.loginOpen = !state.loginOpen;
+        state.loginError = "";
+        render();
+      });
+    }
+    const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+    if (loginSubmitBtn) {
+      loginSubmitBtn.addEventListener('click', async () => {
+        const email = document.getElementById('loginEmail').value.trim();
+        const pw = document.getElementById('loginPassword').value;
+        if (!auth) { state.loginError = "Firebase isn't configured yet."; render(); return; }
+        try {
+          await auth.signInWithEmailAndPassword(email, pw);
+          state.loginOpen = false;
+          state.loginError = "";
+        } catch (err) {
+          state.loginError = "Sign-in failed — check the email and password.";
+          render();
+        }
+      });
+    }
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        if (auth) await auth.signOut();
+      });
+    }
+
+    const dateInputEl = document.getElementById('dateInput');
+    if (dateInputEl) dateInputEl.addEventListener('change', async (e) => {
       state.date = e.target.value;
       if (!state.logs[state.date]) await loadLog(state.date);
       render();
     });
-    document.getElementById('targetInput').addEventListener('change', async (e) => {
+    const targetInputEl = document.getElementById('targetInput');
+    if (targetInputEl) targetInputEl.addEventListener('change', async (e) => {
       state.target = Number(e.target.value) || TARGET_DEFAULT;
       await saveSettings(); render();
     });
-    document.getElementById('cycleEndInput').addEventListener('change', async (e) => {
+    const cycleEndInputEl = document.getElementById('cycleEndInput');
+    if (cycleEndInputEl) cycleEndInputEl.addEventListener('change', async (e) => {
       state.cycleEnd = e.target.value || CYCLE_END_DEFAULT;
       await saveSettings(); render();
     });
-    document.getElementById('fileInput').addEventListener('change', (e) => {
+    const fileInputEl = document.getElementById('fileInput');
+    if (fileInputEl) fileInputEl.addEventListener('change', (e) => {
       const file = e.target.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => { document.getElementById('pasteArea').value = ev.target.result; };
       reader.readAsText(file);
     });
-    document.getElementById('applyBtn').addEventListener('click', async () => {
+    const applyBtnEl = document.getElementById('applyBtn');
+    if (applyBtnEl) applyBtnEl.addEventListener('click', async () => {
       const text = document.getElementById('pasteArea').value;
       const statusEl = document.getElementById('statusMsg');
       if (!db) {
@@ -477,7 +553,8 @@ Milly Nakkazi,5300000
       statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
       render();
     });
-    document.getElementById('clearBtn').addEventListener('click', async () => {
+    const clearBtnEl = document.getElementById('clearBtn');
+    if (clearBtnEl) clearBtnEl.addEventListener('click', async () => {
       await saveLog(state.date, {});
       document.getElementById('pasteArea').value = '';
       render();
@@ -494,6 +571,12 @@ Milly Nakkazi,5300000
   }
 
   async function init(){
+    if (auth) {
+      auth.onAuthStateChanged((user) => {
+        state.isAdmin = !!user;
+        render();
+      });
+    }
     if (db) {
       await loadSettings();
       await seedBaselineIfEmpty();
