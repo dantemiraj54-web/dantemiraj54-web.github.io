@@ -3,1052 +3,524 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shift Timing Tracker</title>
+<title>Deal Sealers — Target Pace Tracker</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
-  :root {
-    --bg: #14171c;
-    --surface: #1d2129;
-    --surface-2: #262b35;
-    --border: #333944;
-    --text: #e7e9ec;
-    --text-dim: #8b93a1;
-    --teal: #2dd4bf;
-    --amber: #f0a742;
-    --test-arm: #4f8ef7;
-    --control-arm: #7c8697;
-    --red: #e5646a;
-    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body, body * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    padding: 24px 16px 64px;
+    --navy: #14293F;
+    --navy-soft: #1E3A56;
+    --paper: #F4F6F9;
+    --card: #FFFFFF;
+    --line: #E3E7EE;
+    --ink: #1B2430;
+    --ink-soft: #667085;
+    --hit: #167A5C;
+    --hit-bg: #E7F5EF;
+    --miss: #C1440E;
+    --miss-bg: #FBECE4;
+    --base-bg: #EEF1F5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; }
-  header { margin-bottom: 24px; }
-  .eyebrow {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--teal);
-    margin-bottom: 6px;
-  }
-  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
-  .sub { color: var(--text-dim); font-size: 13.5px; line-height: 1.5; max-width: 640px; }
+  .shell { max-width: 1040px; margin: 0 auto; padding: 28px 20px 60px; }
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 20px;
+  .head {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+    border-radius: 16px; padding: 26px 28px; color: #fff; margin-bottom: 20px;
+    position: relative; overflow: hidden;
   }
-  .card h2 {
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-    margin: 0 0 16px;
-    font-weight: 600;
+  .head::after {
+    content: ""; position: absolute; right: -60px; top: -60px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
   }
-  .card-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-  .card-head h2 { margin: 0; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.65; font-weight: 600; }
+  .headline { font-size: 25px; font-weight: 700; margin-top: 6px; letter-spacing: -0.01em; }
+  .conn-pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; margin-top:12px; }
+  .conn-pill.ok { background: rgba(127,227,190,0.15); color:#7FE3BE; }
+  .conn-pill.bad { background: rgba(255,154,115,0.15); color:#FF9A73; }
+  .dot { width:7px; height:7px; border-radius:50%; background:currentColor; display:inline-block; }
+  .headstat-row { display: flex; gap: 26px; margin-top: 18px; flex-wrap: wrap; }
+  .headstat .num { font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .headstat .lbl { font-size: 11.5px; opacity: 0.7; margin-top: 4px; }
+  .headstat.hit .num { color: #7FE3BE; }
+  .headstat.miss .num { color: #FF9A73; }
 
-  .form-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-  }
-  @media (max-width: 720px) { .form-grid { grid-template-columns: repeat(2, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 18px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); font-weight: 700; margin: 0 0 14px; }
+  .card .sub { font-size: 12.5px; color: var(--ink-soft); margin: -8px 0 14px; }
 
-  label { display: block; font-size: 11.5px; color: var(--text-dim); margin-bottom: 5px; }
-  input, select, textarea {
-    width: 100%;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 10px;
-    color: var(--text);
-    font-size: 13.5px;
-    font-family: var(--sans);
+  .controls-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+  .field input[type="date"], .field input[type="number"] {
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 14px; color: var(--ink); background: #fff; width: 190px;
   }
-  input[type="number"] { font-family: var(--mono); }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--teal); }
-  .field { margin-bottom: 0; }
-  .span-2 { grid-column: span 2; }
-  .span-4 { grid-column: span 4; }
+  .field input:focus { outline: 2px solid #9FC1D9; outline-offset: 1px; }
 
-  .btn {
-    background: var(--teal);
-    color: #0a1210;
-    border: none;
-    border-radius: 6px;
-    padding: 10px 18px;
-    font-size: 13.5px;
-    font-weight: 650;
-    cursor: pointer;
-    margin-top: 14px;
+  textarea#pasteArea {
+    width: 100%; min-height: 110px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 13px;
+    font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; color: var(--ink);
   }
-  .btn:hover { opacity: 0.9; }
-  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .btn.ghost {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-  }
-  .btn.small { padding: 4px 10px; font-size: 12px; margin-top: 0; }
+  .row-gap { margin-top: 12px; }
+  .btn { border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--navy); color: #fff; }
+  .btn-primary:hover { box-shadow: 0 2px 10px rgba(20,41,63,0.25); }
+  .btn-ghost { background: transparent; color: var(--navy); border: 1px solid var(--line); }
+  .btn-ghost:hover { background: #F0F2F6; }
+  .file-btn { position: relative; overflow: hidden; display: inline-block; }
+  .file-btn input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 100px; }
 
-  .msg { font-size: 12.5px; color: var(--teal); margin-top: 8px; min-height: 16px; }
-  .msg.err { color: var(--red); }
+  .status-msg { font-size: 13px; margin-top: 10px; padding: 9px 12px; border-radius: 8px; display: none; }
+  .status-msg.show { display: block; }
+  .status-ok { background: var(--hit-bg); color: var(--hit); }
+  .status-warn { background: #FFF6E5; color: #9A6300; }
 
-  .tab-bar {
-    display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 6px;
-  }
-  .tab {
-    flex: 1; min-width: 70px; text-align: center;
-    padding: 10px 14px; border-radius: 7px; border: none; cursor: pointer;
-    background: transparent; color: var(--text-dim);
-    font-family: var(--mono); font-size: 13px; font-weight: 650;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { background: var(--teal); color: #0a1210; }
-  .tab.all-tab.active { background: var(--amber); }
-  .locked-bucket {
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 10px; font-size: 13.5px; font-weight: 650; color: var(--teal);
-  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: right; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 700; padding: 8px 9px; border-bottom: 2px solid var(--line); }
+  thead th.left { text-align: left; }
+  tbody td { padding: 9px 9px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: right; }
+  tbody td.left { text-align: left; }
+  tbody tr:hover { background: #FAFBFD; }
+  tbody tr.miss-row { background: var(--miss-bg); }
+  tbody tr.miss-row:hover { background: #F8E1D4; }
+  .agent-name { font-weight: 600; }
+  .num-cell { font-variant-numeric: tabular-nums; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
+  .badge.hit { background: var(--hit-bg); color: var(--hit); }
+  .badge.miss { background: #fff; color: var(--miss); border: 1px solid var(--miss); }
+  .badge.base { background: var(--base-bg); color: var(--ink-soft); }
+  .short { color: var(--miss); font-weight: 700; }
+  .zero { color: var(--ink-soft); }
 
-  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-  @media (max-width: 720px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
-  .stat {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-  }
-  .stat .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-  .stat .value { font-family: var(--mono); font-size: 22px; font-weight: 650; }
-  .stat .value.test { color: var(--test-arm); }
-  .stat .value.control { color: var(--control-arm); }
-  .stat .delta { font-size: 12px; margin-top: 4px; color: var(--text-dim); }
-
-  .filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-  .chip {
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text-dim);
-    cursor: pointer;
-  }
-  .chip.active { background: var(--teal); color: #0a1210; border-color: var(--teal); font-weight: 650; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  thead th {
-    text-align: left;
-    color: var(--text-dim);
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 10.5px;
-    letter-spacing: 0.04em;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  tbody td {
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    font-family: var(--mono);
-    white-space: nowrap;
-  }
-  tbody tr:hover { background: var(--surface-2); }
-  .after18 { color: var(--amber); font-weight: 650; }
-  .empty { color: var(--text-dim); font-size: 13px; text-align: center; padding: 24px 0; }
-  .table-scroll { overflow-x: auto; }
-  .del-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; }
-  .del-btn:hover { color: var(--red); }
-
-  canvas { max-width: 100%; }
+  .hist-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  select#histSelect { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13px; min-width: 220px; }
+  .empty-note { color: var(--ink-soft); font-size: 13px; padding: 6px 0 2px; }
+  .footnote { font-size: 11.5px; color: var(--ink-soft); margin-top: 10px; }
+  .setup-banner { background:#FFF6E5; border:1px solid #F0D9A6; color:#7A5300; border-radius:12px; padding:16px 18px; margin-bottom:20px; font-size:13px; line-height:1.5; }
+  .setup-banner code { background:#fff; padding:1px 5px; border-radius:4px; }
 </style>
 </head>
 <body>
+<div id="app"></div>
 
-<div id="setupBanner" style="display:none; max-width: 640px; margin: 60px auto; padding: 24px; background: #1d2129; border: 1px solid #f0a742; border-radius: 10px; font-family: -apple-system, sans-serif; color: #e7e9ec;">
-  <div style="font-size: 15px; font-weight: 650; color: #f0a742; margin-bottom: 8px;">Firebase not connected yet</div>
-  <div class="banner-msg" style="font-size: 13.5px; color: #8b93a1; line-height: 1.6;">
-    Open this file and paste your Firebase project's config values into the <code>firebaseConfig</code> object near the bottom of the &lt;script&gt; section, then reload.
-  </div>
-</div>
-
-<div class="wrap" id="mainApp" style="display:none;">
-
-  <header>
-    <div class="eyebrow">Collections · Recency Timing Tracker</div>
-    <h1>Shift Timing Tracker</h1>
-    <div class="sub">Log attempts, connects and drops by hour segment across the 202606–202608 cycles as you naturally work the queues. The tracker finds patterns in which hours connect and convert best, per recency bucket. Synced live via Firebase.</div>
-  </header>
-
-  <div class="tab-bar" id="tabBar">
-    <button class="tab active" data-bucket="R0">R0</button>
-    <button class="tab" data-bucket="R1">R1</button>
-    <button class="tab" data-bucket="R2">R2</button>
-    <button class="tab" data-bucket="R3">R3</button>
-    <button class="tab all-tab" data-bucket="ALL">All buckets</button>
-  </div>
-  <div class="sub" style="margin: -12px 0 20px;">Everything below — logging, imports, stats, charts and the table — follows whichever tab is selected above. Switch tabs to work on a different recency bucket; there's no bucket dropdown to forget anymore.</div>
-
-  <div class="stats-row" id="statsRow"></div>
-
-  <div class="card">
-    <h2>Log an entry</h2>
-    <div class="form-grid">
-      <div class="field">
-        <label>Date</label>
-        <input type="date" id="f-date">
-      </div>
-      <div class="field">
-        <label>Cycle</label>
-        <select id="f-cycle">
-          <option value="202606">202606 (Jun 11–Jul 10)</option>
-          <option value="202607">202607 (Jul 11–Aug 10)</option>
-          <option value="202608">202608 (Aug 11–Sep 10)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Recency bucket (follows the tab above)</label>
-        <div class="locked-bucket" id="f-bucket-display">R0</div>
-      </div>
-      <div class="field">
-        <label>Schedule note (optional)</label>
-        <input type="text" id="f-arm" placeholder="e.g. extra agents pushed here">
-      </div>
-
-      <div class="field">
-        <label>Hour segment</label>
-        <select id="f-hour">
-          <option>Before 08</option><option>08-09</option><option>09-10</option><option>10-11</option>
-          <option>11-12</option><option>12-13</option><option>13-14</option><option>14-15</option>
-          <option>15-16</option><option>16-17</option><option>17-18</option><option>After 18:00</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Agents assigned</label>
-        <input type="number" id="f-agents" min="0" placeholder="0">
-      </div>
-      <div class="field">
-        <label>Attempts</label>
-        <input type="number" id="f-attempts" min="0" placeholder="0">
-      </div>
-      <div class="field">
-        <label>Connects</label>
-        <input type="number" id="f-connects" min="0" placeholder="0">
-      </div>
-
-      <div class="field">
-        <label>Drops (count)</label>
-        <input type="number" id="f-drops" min="0" placeholder="0">
-      </div>
-      <div class="field">
-        <label>Target drops (optional)</label>
-        <input type="number" id="f-target" min="0" placeholder="0">
-      </div>
-      <div class="field span-2">
-        <label>Notes (e.g. system/network issue)</label>
-        <input type="text" id="f-notes" placeholder="Optional">
-      </div>
-    </div>
-    <button class="btn" id="saveBtn">Save entry</button>
-    <div class="msg" id="formMsg"></div>
-  </div>
-
-  <div class="card">
-    <h2>Import dashboard exports (native format)</h2>
-    <div class="sub" style="margin-bottom:14px;">Upload your exports exactly as they come off the dashboard — per-agent hourly attempts/connects, and the hourly drops sheet. Set the context once (date, cycle, note, bucket) since the exports themselves don't carry that. Hours with no activity in your attempts/connects export are simply skipped; the drops sheet fills in the rest of the day.</div>
-
-    <div class="form-grid" style="margin-bottom:16px;">
-      <div class="field">
-        <label>Date</label>
-        <input type="date" id="d-date">
-      </div>
-      <div class="field">
-        <label>Cycle</label>
-        <select id="d-cycle">
-          <option value="202606">202606</option>
-          <option value="202607">202607</option>
-          <option value="202608">202608</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Recency bucket (follows the tab above)</label>
-        <div class="locked-bucket" id="d-bucket-display">R0</div>
-      </div>
-      <div class="field">
-        <label>Schedule note (optional)</label>
-        <input type="text" id="d-arm" placeholder="e.g. extra agents pushed here">
-      </div>
-    </div>
-
-    <div class="form-grid" style="margin-bottom:8px;">
-      <div class="field span-2">
-        <label>Call attempts export (agent × hour)</label>
-        <input type="file" id="d-attempts" accept=".csv">
-      </div>
-      <div class="field span-2">
-        <label>Connects export (agent × hour)</label>
-        <input type="file" id="d-connects" accept=".csv">
-      </div>
-    </div>
-    <div class="form-grid" style="margin-bottom:14px;">
-      <div class="field span-4">
-        <label>Hourly drops export (TIME_SEGMENT / target / actual)</label>
-        <input type="file" id="d-drops" accept=".csv">
-      </div>
-    </div>
-
-    <button class="btn" id="processDashBtn">Process & add to tracker</button>
-    <div class="msg" id="dashMsg"></div>
-  </div>
-
-  <div class="card">
-    <h2>Import from CSV (manual row format)</h2>
-    <div class="sub" style="margin-bottom:14px;">Export your hourly attempts/connects/drops into a CSV with these exact column headers, then upload it here. Rows get appended to what's already logged — nothing gets overwritten.</div>
-    <div class="table-scroll" style="margin-bottom:14px;">
-      <table>
-        <thead>
-          <tr><th>date</th><th>cycle</th><th>arm</th><th>bucket</th><th>hour</th><th>agents</th><th>attempts</th><th>connects</th><th>drops</th><th>target</th><th>notes</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>2026-07-01</td><td>202607</td><td></td><td>R0</td><td>17-18</td>
-            <td>4</td><td>471</td><td>246</td><td>475</td><td>269</td><td></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div style="font-size:12px; color:var(--text-dim); line-height:1.7; margin-bottom:14px;">
-      <b>date</b>: YYYY-MM-DD &nbsp;·&nbsp;
-      <b>cycle</b>: 202606, 202607, or 202608 &nbsp;·&nbsp;
-      <b>arm</b>: optional free text, e.g. "extra agents pushed" — leave blank if nothing unusual &nbsp;·&nbsp;
-      <b>bucket</b>: R0, R1, R2, or R3<br>
-      <b>hour</b>: Before 08, 08-09, 09-10, 10-11, 11-12, 12-13, 13-14, 14-15, 15-16, 16-17, 17-18, or After 18:00 &nbsp;·&nbsp;
-      <b>agents / attempts / connects / drops</b>: whole numbers &nbsp;·&nbsp;
-      <b>target</b>: number, leave blank if none &nbsp;·&nbsp;
-      <b>notes</b>: optional, leave blank if none
-    </div>
-    <button class="btn ghost" id="downloadTemplateBtn">Download blank template</button>
-    <input type="file" id="csvFile" accept=".csv" style="margin-top:14px; display:block; font-size:13px; color:var(--text-dim);">
-    <div class="msg" id="importMsg"></div>
-  </div>
-
-  <div class="card">
-    <h2>Fix mistagged entries</h2>
-    <div class="sub" style="margin-bottom:14px;">Reassign a batch of entries from one bucket to another — useful if a whole day got saved under the wrong recency bucket. Leave date/cycle blank to match across all of them.</div>
-    <div class="form-grid" style="margin-bottom:14px;">
-      <div class="field">
-        <label>Date (optional)</label>
-        <input type="date" id="rb-date">
-      </div>
-      <div class="field">
-        <label>Cycle (optional)</label>
-        <select id="rb-cycle">
-          <option value="">Any cycle</option>
-          <option value="202606">202606</option>
-          <option value="202607">202607</option>
-          <option value="202608">202608</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>From bucket</label>
-        <select id="rb-from">
-          <option>R0</option><option>R1</option><option>R2</option><option>R3</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>To bucket</label>
-        <select id="rb-to">
-          <option>R1</option><option>R0</option><option>R2</option><option>R3</option>
-        </select>
-      </div>
-    </div>
-    <button class="btn ghost" id="reassignBtn">Reassign matching entries</button>
-    <div class="msg" id="reassignMsg"></div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2 id="entriesTitle">R0 logged entries</h2></div>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th><th>Cycle</th><th>Bucket</th><th>Hour</th>
-            <th>Agents</th><th>Attempts</th><th>Connects</th><th>Conn %</th>
-            <th>Drops</th><th>Target</th><th>Schedule note</th><th>Notes</th><th></th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
-      <div class="empty" id="emptyState" style="display:none;">No entries yet — log your first hour above.</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2 id="hourChartTitle">R0 connect rate by hour (all logged days)</h2></div>
-    <div style="position: relative; height: 260px;">
-      <canvas id="hourRateChart"></canvas>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2 id="trendChartTitle">After-18:00 R0 drop share, by date — coloured by whether R0 was called late that day</h2></div>
-    <div style="position: relative; height: 280px;">
-      <canvas id="trendChart"></canvas>
-    </div>
-  </div>
-
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
-// ── Your Firebase project's config ──
+// ============================================================
+// 1. PASTE YOUR FIREBASE CONFIG HERE (from Firebase console)
+// ============================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyCvMvDyXVb_pt5sK2WvSpVVJSmxufneDUA",
-  authDomain: "r0-shift-tracker.firebaseapp.com",
-  projectId: "r0-shift-tracker",
-  storageBucket: "r0-shift-tracker.firebasestorage.app",
-  messagingSenderId: "512318211029",
-  appId: "1:512318211029:web:054732c60a065afe66335c"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
 };
-// ─────────────────────────────────────
+// ============================================================
 
-let entries = [];
-let currentBucket = 'R0';
-let chartInstance = null;
-let hourChartInstance = null;
+const CONFIG_IS_PLACEHOLDER = firebaseConfig.apiKey === "YOUR_API_KEY";
 let db = null;
-const COLLECTION = 'tracker';
-const DOC_ID = 'entries';
-
-function isConfigured() {
-  return firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('PASTE_');
+if (!CONFIG_IS_PLACEHOLDER) {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
 }
 
-function showSetupBanner(msg) {
-  const banner = document.getElementById('setupBanner');
-  banner.style.display = 'block';
-  if (msg) banner.querySelector('.banner-msg').textContent = msg;
-  document.getElementById('mainApp').style.display = 'none';
-}
+(function(){
+  const ROSTER = [
+    { alias: "Anitah",          full: "Anitah Nalugwa" },
+    { alias: "Elizabeth A",     full: "Elizabeth Akampurira" },
+    { alias: "David",           full: "David Wasen" },
+    { alias: "Emily",           full: "Emily Namara" },
+    { alias: "Flisha",          full: "Sarah Akello Flishia" },
+    { alias: "Patience",        full: "Patience Nyamwiza" },
+    { alias: "Birungi",         full: "Birungi Nuwagaba" },
+    { alias: "Angella",         full: "Angella Athieno" },
+    { alias: "Oliver",          full: "Oliver Natoolo" },
+    { alias: "Nabyonga",        full: "Racheal  Nabyonga Kisakye" },
+    { alias: "Natasha",         full: "Natasha Nakiyaga" },
+    { alias: "Violla",          full: "Babirye Violla" },
+    { alias: "Kemigisa",        full: "Elizabeth Kemigisa" },
+    { alias: "Angel",           full: "Ankwatsiibwe Angel" },
+    { alias: "Mercy",           full: "Mercy  Atusasiire" },
+    { alias: "Flavia",          full: "Flavia Nangonzi" },
+    { alias: "Kenneth",         full: "Kenneth Birungi" },
+    { alias: "Gloria",          full: "Gloria Nahirya" },
+    { alias: "Manita",          full: "Manita Joan" },
+    { alias: "Milly",           full: "Milly Nakkazi" },
+    { alias: "Stella",          full: "Akademere Stella Slyvia" },
+    { alias: "Florence Mebra",  full: "Florence Kaudha" },
+  ];
 
-function initFirebase() {
-  if (!isConfigured()) {
-    showSetupBanner();
-    return;
-  }
-  try {
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    document.getElementById('setupBanner').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    db.collection(COLLECTION).doc(DOC_ID).onSnapshot(
-      docSnap => {
-        entries = (docSnap.exists && docSnap.data().entries) ? docSnap.data().entries : [];
-        render();
-      },
-      err => {
-        showSetupBanner('Connected, but could not read data (' + err.message + '). Check your Firestore rules allow read/write on tracker/entries.');
-      }
-    );
-  } catch (e) {
-    showSetupBanner('Could not connect to Firebase (' + e.message + '). Double-check your config values.');
-  }
-}
-
-async function saveEntries() {
-  if (!db) return;
-  try {
-    await db.collection(COLLECTION).doc(DOC_ID).set({ entries });
-  } catch (e) {
-    const msg = document.getElementById('formMsg');
-    if (msg) {
-      msg.textContent = 'Could not save to Firebase — check your connection and Firestore rules.';
-      msg.classList.add('err');
-    }
-  }
-}
-
-function fieldVal(id) { return document.getElementById(id).value; }
-
-document.querySelectorAll('.tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    currentBucket = btn.dataset.bucket;
-    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-  });
-});
-
-document.getElementById('saveBtn').addEventListener('click', async () => {
-  const msg = document.getElementById('formMsg');
-  msg.classList.remove('err');
-
-  if (currentBucket === 'ALL') {
-    msg.textContent = 'Pick a specific bucket tab (R0-R3) first — "All buckets" is a view-only overview.';
-    msg.classList.add('err');
-    return;
-  }
-
-  const date = fieldVal('f-date');
-  const attempts = Number(fieldVal('f-attempts')) || 0;
-  const connects = Number(fieldVal('f-connects')) || 0;
-  const drops = Number(fieldVal('f-drops')) || 0;
-
-  if (!date) {
-    msg.textContent = 'Pick a date first.';
-    msg.classList.add('err');
-    return;
-  }
-
-  const entry = {
-    id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-    date,
-    cycle: fieldVal('f-cycle'),
-    arm: fieldVal('f-arm'),
-    bucket: currentBucket,
-    hour: fieldVal('f-hour'),
-    agents: Number(fieldVal('f-agents')) || 0,
-    attempts,
-    connects,
-    drops,
-    target: fieldVal('f-target') ? Number(fieldVal('f-target')) : null,
-    notes: fieldVal('f-notes') || ''
+  const TARGET_DEFAULT = 92100000;
+  const CYCLE_END_DEFAULT = "2026-08-10";
+  const BASELINE_DATE = "2026-07-15";
+  const BASELINE_DATA = {
+    "Anitah Nalugwa": 3357000, "Elizabeth Akampurira": 5576500, "David Wasen": 5493200,
+    "Emily Namara": 1481200, "Sarah Akello Flishia": 2313600, "Patience Nyamwiza": 4345000,
+    "Birungi Nuwagaba": 2979500, "Angella Athieno": 9430000, "Oliver Natoolo": 4505000,
+    "Racheal  Nabyonga Kisakye": 3659500, "Natasha Nakiyaga": 2632000,
+    "Babirye Violla": 3522000, "Elizabeth Kemigisa": 2693000, "Ankwatsiibwe Angel": 6044400,
+    "Mercy  Atusasiire": 3526000, "Flavia Nangonzi": 4031800, "Kenneth Birungi": 1873000,
+    "Gloria Nahirya": 1294000, "Manita Joan": 2585000, "Milly Nakkazi": 5036700,
+    "Akademere Stella Slyvia": 4927100, "Florence Kaudha": 1418500
   };
 
-  entries.push(entry);
-  await saveEntries();
-  msg.textContent = `Saved to ${currentBucket}.`;
-  ['f-agents','f-attempts','f-connects','f-drops','f-target','f-notes'].forEach(id => document.getElementById(id).value = '');
-  render();
-});
-
-async function deleteEntry(id) {
-  entries = entries.filter(e => e.id !== id);
-  await saveEntries();
-  render();
-}
-
-document.getElementById('reassignBtn').addEventListener('click', async () => {
-  const msg = document.getElementById('reassignMsg');
-  msg.classList.remove('err');
-
-  const date = fieldVal('rb-date');
-  const cycle = fieldVal('rb-cycle');
-  const from = fieldVal('rb-from');
-  const to = fieldVal('rb-to');
-
-  if (from === to) {
-    msg.textContent = '"From" and "To" bucket are the same — nothing to do.';
-    msg.classList.add('err');
-    return;
+  function norm(s){ return (s||"").replace(/\s+/g,' ').trim().toLowerCase(); }
+  function fmt(n){ return Math.round(n).toLocaleString('en-US'); }
+  function todayStr(){
+    const d = new Date();
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0');
+  }
+  function daysRemaining(fromDateStr, toDateStr){
+    const a = new Date(fromDateStr+"T00:00:00");
+    const b = new Date(toDateStr+"T00:00:00");
+    const diff = Math.round((b - a) / 86400000) + 1;
+    return Math.max(diff, 1);
+  }
+  function addDays(dateStr, n){
+    const d = new Date(dateStr+"T00:00:00");
+    d.setDate(d.getDate()+n);
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0');
+  }
+  function keySafe(fullName){
+    // Firebase RTDB keys can't contain . # $ [ ] /
+    return fullName.replace(/[.#$\[\]\/]/g, '_');
   }
 
-  const matches = entries.filter(e =>
-    e.bucket === from &&
-    (!date || e.date === date) &&
-    (!cycle || e.cycle === cycle)
-  );
+  const state = {
+    date: todayStr(),
+    target: TARGET_DEFAULT,
+    cycleEnd: CYCLE_END_DEFAULT,
+    overrides: {},
+    logs: {},
+    histDates: [],
+    connected: false,
+  };
 
-  if (!matches.length) {
-    msg.textContent = `No ${from} entries found matching those filters.`;
-    msg.classList.add('err');
-    return;
-  }
+  const app = document.getElementById('app');
 
-  const confirmed = window.confirm(
-    `Reassign ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} from ${from} to ${to}` +
-    (date ? ` (date ${date})` : '') + (cycle ? ` (cycle ${cycle})` : '') + '?'
-  );
-  if (!confirmed) return;
-
-  matches.forEach(e => e.bucket = to);
-  await saveEntries();
-  render();
-  msg.textContent = `Reassigned ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} from ${from} to ${to}.`;
-});
-
-function updateBucketDisplays() {
-  const label = currentBucket === 'ALL' ? '—' : currentBucket;
-  const fDisp = document.getElementById('f-bucket-display');
-  const dDisp = document.getElementById('d-bucket-display');
-  if (fDisp) fDisp.textContent = label;
-  if (dDisp) dDisp.textContent = label;
-  const saveBtn = document.getElementById('saveBtn');
-  const processBtn = document.getElementById('processDashBtn');
-  if (saveBtn) saveBtn.disabled = currentBucket === 'ALL';
-  if (processBtn) processBtn.disabled = currentBucket === 'ALL';
-}
-
-function render() {
-  updateBucketDisplays();
-  renderStats();
-  renderTable();
-  renderChart();
-  renderHourRateChart();
-}
-
-function hourStartNum(label) {
-  if (label === 'Before 08') return 7;
-  if (label === 'After 18:00') return null;
-  return parseInt(label.split('-')[0], 10);
-}
-
-function connRateByHour(list) {
-  const byHour = {};
-  list.forEach(e => {
-    if (e.hour === 'After 18:00') return;
-    byHour[e.hour] = byHour[e.hour] || { a: 0, c: 0 };
-    byHour[e.hour].a += e.attempts;
-    byHour[e.hour].c += e.connects;
-  });
-  let best = null;
-  Object.entries(byHour).forEach(([h, v]) => {
-    if (!v.a) return;
-    const rate = v.c / v.a * 100;
-    if (!best || rate > best.rate) best = { hour: h, rate };
-  });
-  return { byHour, best };
-}
-
-function lateVsEarlyShare(list) {
-  const byDate = {};
-  list.forEach(e => {
-    byDate[e.date] = byDate[e.date] || { total: 0, after18: 0, latestCallHour: -1 };
-    byDate[e.date].total += e.drops;
-    if (e.hour === 'After 18:00') {
-      byDate[e.date].after18 += e.drops;
-    } else if (e.attempts > 0) {
-      const hs = hourStartNum(e.hour);
-      if (hs !== null && hs > byDate[e.date].latestCallHour) byDate[e.date].latestCallHour = hs;
+  function parseCsv(text){
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+    const out = {};
+    for (const line of lines) {
+      const idx = line.lastIndexOf(',');
+      if (idx === -1) continue;
+      let name = line.slice(0, idx).trim();
+      let val = line.slice(idx+1).trim().replace(/[^0-9.\-]/g,'');
+      if (/^(consultant|agent|name)$/i.test(name)) continue;
+      if (val === '' || isNaN(Number(val))) continue;
+      out[norm(name)] = Number(val);
     }
-  });
-  const early = [], late = [];
-  Object.values(byDate).forEach(d => {
-    if (d.latestCallHour === -1 || d.total === 0) return;
-    const share = d.after18 / d.total;
-    (d.latestCallHour >= 14 ? late : early).push(share);
-  });
-  const avg = arr => arr.length ? (arr.reduce((s,x) => s+x, 0) / arr.length * 100) : null;
-  return { early: avg(early), late: avg(late), earlyDays: early.length, lateDays: late.length };
-}
-
-function bucketLabel() { return currentBucket === 'ALL' ? 'All buckets' : currentBucket; }
-
-function renderStats() {
-  const statsRow = document.getElementById('statsRow');
-  const bucketEntries = filteredEntries();
-  const { best } = connRateByHour(bucketEntries);
-  const split = lateVsEarlyShare(bucketEntries);
-  const fmt = v => v === null ? '—' : v.toFixed(1) + '%';
-  const label = bucketLabel();
-
-  statsRow.innerHTML = `
-    <div class="stat">
-      <div class="label">Entries logged — ${label}</div>
-      <div class="value">${bucketEntries.length}</div>
-      <div class="delta">${entries.length} total across all buckets</div>
-    </div>
-    <div class="stat">
-      <div class="label">${label} best connect-rate hour</div>
-      <div class="value test">${best ? best.hour : '—'}</div>
-      <div class="delta">${best ? fmt(best.rate) + ' connect rate' : 'not enough data yet'}</div>
-    </div>
-    <div class="stat">
-      <div class="label">After-18:00 share — ${label} called late (14:00+)</div>
-      <div class="value test">${fmt(split.late)}</div>
-      <div class="delta">vs called early only: ${fmt(split.early)} (${split.lateDays} late day(s), ${split.earlyDays} early day(s))</div>
-    </div>
-    <div class="stat">
-      <div class="label">Notes flagged</div>
-      <div class="value" style="color:var(--amber)">${bucketEntries.filter(e=>e.notes).length}</div>
-      <div class="delta">possible anomalies logged for ${label}</div>
-    </div>
-  `;
-}
-
-function filteredEntries() {
-  if (currentBucket === 'ALL') return entries;
-  return entries.filter(e => e.bucket === currentBucket);
-}
-
-function renderTable() {
-  const body = document.getElementById('tableBody');
-  const empty = document.getElementById('emptyState');
-  const list = [...filteredEntries()].sort((a,b) => b.date.localeCompare(a.date) || a.hour.localeCompare(b.hour));
-
-  document.getElementById('entriesTitle').textContent = `${bucketLabel()} logged entries`;
-
-  if (!list.length) {
-    body.innerHTML = '';
-    empty.style.display = 'block';
-    return;
+    return out;
   }
-  empty.style.display = 'none';
 
-  body.innerHTML = list.map(e => {
-    const rate = e.attempts ? (e.connects/e.attempts*100).toFixed(0)+'%' : '—';
-    const isAfter18 = e.hour === 'After 18:00';
-    return `
-      <tr>
-        <td>${e.date}</td>
-        <td>${e.cycle}</td>
-        <td>${e.bucket}</td>
-        <td class="${isAfter18 ? 'after18' : ''}">${e.hour}</td>
-        <td>${e.agents}</td>
-        <td>${e.attempts}</td>
-        <td>${e.connects}</td>
-        <td>${rate}</td>
-        <td class="${isAfter18 ? 'after18' : ''}">${e.drops}</td>
-        <td>${e.target ?? '—'}</td>
-        <td style="font-family:var(--sans); white-space:normal; max-width:140px;">${e.arm || ''}</td>
-        <td style="font-family:var(--sans); white-space:normal; max-width:160px;">${e.notes || ''}</td>
-        <td><button class="del-btn" data-id="${e.id}" title="Delete">✕</button></td>
-      </tr>
+  function matchRoster(parsedMap){
+    const collected = {};
+    for (const r of ROSTER) {
+      const key = norm(r.full);
+      if (parsedMap[key] !== undefined) { collected[r.full] = parsedMap[key]; continue; }
+      const aliasKey = norm(r.alias);
+      let found = undefined;
+      for (const pk in parsedMap) {
+        if (pk.includes(aliasKey) || aliasKey.includes(pk)) { found = parsedMap[pk]; break; }
+      }
+      collected[r.full] = found !== undefined ? found : null;
+    }
+    return collected;
+  }
+
+  function decodeLogObj(obj){
+    // Firebase stores keys as keySafe(full); map back to full names via ROSTER
+    const out = {};
+    if (!obj) return out;
+    for (const r of ROSTER) {
+      const k = keySafe(r.full);
+      if (obj[k] !== undefined && obj[k] !== null) out[r.full] = obj[k];
+    }
+    return out;
+  }
+  function encodeLogObj(collectedByFull){
+    const out = {};
+    for (const full in collectedByFull) {
+      if (collectedByFull[full] !== null && collectedByFull[full] !== undefined) {
+        out[keySafe(full)] = collectedByFull[full];
+      }
+    }
+    return out;
+  }
+
+  async function loadSettings(){
+    if (!db) return;
+    const snap = await db.ref('settings').once('value');
+    if (snap.exists()) {
+      const s = snap.val();
+      state.target = s.target ?? TARGET_DEFAULT;
+      state.cycleEnd = s.cycleEnd ?? CYCLE_END_DEFAULT;
+      state.overrides = s.overrides || {};
+    }
+  }
+  async function saveSettings(){
+    if (!db) return;
+    await db.ref('settings').set({ target: state.target, cycleEnd: state.cycleEnd, overrides: state.overrides });
+  }
+
+  async function seedBaselineIfEmpty(){
+    if (!db) return;
+    const snap = await db.ref('logs/'+BASELINE_DATE).once('value');
+    if (snap.exists()) return;
+    await db.ref('logs/'+BASELINE_DATE).set(encodeLogObj(BASELINE_DATA));
+  }
+
+  async function loadLog(date){
+    if (!db) return null;
+    const snap = await db.ref('logs/'+date).once('value');
+    const decoded = snap.exists() ? decodeLogObj(snap.val()) : null;
+    if (decoded) state.logs[date] = decoded;
+    return decoded;
+  }
+  async function saveLog(date, collectedByFull){
+    if (!db) return;
+    await db.ref('logs/'+date).set(encodeLogObj(collectedByFull));
+    state.logs[date] = collectedByFull;
+  }
+  async function refreshHistoryList(){
+    if (!db) { state.histDates = []; return; }
+    const snap = await db.ref('logs').once('value');
+    state.histDates = snap.exists() ? Object.keys(snap.val()).sort() : [];
+  }
+
+  function targetFor(full){ return state.overrides[full] !== undefined ? state.overrides[full] : state.target; }
+
+  function prevLoggedDate(date){
+    const earlier = state.histDates.filter(d => d < date);
+    if (earlier.length === 0) return null;
+    return earlier[earlier.length - 1];
+  }
+
+  function renderSetupBanner(){
+    return `<div class="setup-banner">
+      <strong>Firebase isn't configured yet.</strong> Open this file, find <code>firebaseConfig</code> near the top of the &lt;script&gt;, and paste in your project's config values from the Firebase console (Project settings → General → Your apps → SDK setup). Until then, data won't save or sync.
+    </div>`;
+  }
+
+  function render(){
+    const cur = state.logs[state.date] || null;
+    const prevDate = prevLoggedDate(state.date);
+    const prev = prevDate ? state.logs[prevDate] : null;
+
+    const rows = ROSTER.map(r => {
+      const tgt = targetFor(r.full);
+      const cumNow = cur ? cur[r.full] : null;
+      const cumPrev = prev ? prev[r.full] : null;
+      const hasNow = cumNow !== null && cumNow !== undefined;
+      const hasPrev = cumPrev !== null && cumPrev !== undefined;
+
+      let todayCollected = null, requiredToday = null, hit = null, shortfall = null;
+      if (hasNow && hasPrev) {
+        todayCollected = cumNow - cumPrev;
+        const daysAtPrev = daysRemaining(state.date, state.cycleEnd);
+        requiredToday = (tgt - cumPrev) / daysAtPrev;
+        hit = todayCollected >= requiredToday;
+        shortfall = hit ? 0 : (requiredToday - todayCollected);
+      }
+      const remaining = hasNow ? Math.max(tgt - cumNow, 0) : null;
+      const daysFwd = daysRemaining(addDays(state.date,1), state.cycleEnd);
+      const nextPace = hasNow ? remaining / daysFwd : null;
+
+      return { ...r, tgt, cumNow, hasNow, hasPrev, todayCollected, requiredToday, hit, shortfall, remaining, nextPace };
+    });
+
+    const measured = rows.filter(r => r.hasNow && r.hasPrev);
+    const hitCount = measured.filter(r => r.hit).length;
+    const missCount = measured.filter(r => !r.hit).length;
+    const totalShortfall = measured.filter(r => !r.hit).reduce((s,r)=>s+r.shortfall,0);
+    const isBaselineOnly = !prev;
+
+    app.innerHTML = `
+      <div class="shell">
+        ${CONFIG_IS_PLACEHOLDER ? renderSetupBanner() : ''}
+        <div class="head">
+          <div class="eyebrow">Deal Sealers &middot; Target Pace Tracker</div>
+          <div class="headline">Target: UGX ${fmt(state.target)} per agent &middot; cycle ends ${state.cycleEnd}</div>
+          <div class="conn-pill ${db ? 'ok' : 'bad'}"><span class="dot"></span>${db ? 'Connected to Firebase' : 'Not connected'}</div>
+          <div class="headstat-row">
+            <div class="headstat hit"><div class="num">${hitCount}</div><div class="lbl">hit daily pace</div></div>
+            <div class="headstat miss"><div class="num">${missCount}</div><div class="lbl">missed daily pace</div></div>
+            <div class="headstat"><div class="num">${fmt(totalShortfall)}</div><div class="lbl">total shortfall (UGX)</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Log today's standings</h2>
+          <div class="sub">Paste or upload the day's CSV of <strong>cumulative</strong> totals (Consultant, Total) &mdash; the same format your daily export already comes in.</div>
+          <div class="controls-row">
+            <div class="field">
+              <label for="dateInput">Date of this CSV</label>
+              <input type="date" id="dateInput" value="${state.date}">
+            </div>
+            <div class="field">
+              <label for="targetInput">Target per agent (UGX)</label>
+              <input type="number" id="targetInput" value="${state.target}" step="100000">
+            </div>
+            <div class="field">
+              <label for="cycleEndInput">Cycle ends</label>
+              <input type="date" id="cycleEndInput" value="${state.cycleEnd}">
+            </div>
+            <div class="file-btn btn btn-ghost">
+              Upload CSV
+              <input type="file" id="fileInput" accept=".csv,text/csv">
+            </div>
+          </div>
+          <div class="row-gap">
+            <label style="font-size:12px;color:var(--ink-soft);font-weight:600;">Or paste CSV</label>
+            <textarea id="pasteArea" class="row-gap" placeholder="Consultant,Total
+Angella Athieno,9800000
+Milly Nakkazi,5300000
+..."></textarea>
+          </div>
+          <div class="row-gap">
+            <button class="btn btn-primary" id="applyBtn">Apply to ${state.date}</button>
+            <button class="btn btn-ghost" id="clearBtn" style="margin-left:8px;">Clear this date</button>
+          </div>
+          <div class="status-msg" id="statusMsg"></div>
+        </div>
+
+        <div class="card">
+          <h2>Standings &mdash; ${state.date}</h2>
+          ${!cur ? `<div class="empty-note">No CSV logged for this date yet. Paste or upload above.</div>` : `
+          ${isBaselineOnly ? `<div class="sub">This is the first day logged, so there's no prior total to measure today's collection against yet &mdash; showing cumulative standing and the pace needed going forward. Once you log the next day's CSV, hit/miss will show.</div>` : ''}
+          <table>
+            <thead>
+              <tr>
+                <th class="left">Agent</th>
+                <th>Cumulative</th>
+                ${!isBaselineOnly ? `<th>Collected today</th><th>Required today</th><th>Status</th><th>Shortfall</th>` : ''}
+                <th>Remaining to target</th>
+                <th>Pace needed / day (fwd)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr class="${r.hasNow && r.hasPrev && !r.hit ? 'miss-row' : ''}">
+                  <td class="left agent-name">${r.alias}<div style="font-weight:400;font-size:11.5px;color:var(--ink-soft);">${r.full}</div></td>
+                  <td class="num-cell">${r.hasNow ? fmt(r.cumNow) : '&mdash;'}</td>
+                  ${!isBaselineOnly ? `
+                    <td class="num-cell">${r.hasPrev && r.hasNow ? fmt(r.todayCollected) : '<span class="zero">&mdash;</span>'}</td>
+                    <td class="num-cell">${r.hasPrev && r.hasNow ? fmt(r.requiredToday) : '&mdash;'}</td>
+                    <td>${r.hasPrev && r.hasNow ? (r.hit ? `<span class="badge hit">&#10003; Hit</span>` : `<span class="badge miss">&#10007; Missed</span>`) : `<span class="badge base">No prior day</span>`}</td>
+                    <td class="num-cell">${r.hasPrev && r.hasNow && !r.hit ? `<span class="short">${fmt(r.shortfall)}</span>` : '<span class="zero">&mdash;</span>'}</td>
+                  ` : ''}
+                  <td class="num-cell">${r.hasNow ? fmt(r.remaining) : '&mdash;'}</td>
+                  <td class="num-cell">${r.hasNow ? fmt(r.nextPace) : '&mdash;'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          `}
+        </div>
+
+        <div class="card">
+          <h2>History</h2>
+          <div class="hist-row">
+            <select id="histSelect">
+              <option value="">Jump to a logged date&hellip;</option>
+              ${state.histDates.slice().reverse().map(d => `<option value="${d}" ${d===state.date?'selected':''}>${d}${d===BASELINE_DATE?' (baseline)':''}</option>`).join('')}
+            </select>
+          </div>
+          <div class="footnote">Every date logged here is saved to Firebase and shared live &mdash; anyone with this page's URL sees the same data, updated in real time. "Required today" is recalculated each day from the prior day's balance and the days left to the cycle end date above.</div>
+        </div>
+      </div>
     `;
-  }).join('');
 
-  body.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', () => deleteEntry(btn.dataset.id));
-  });
-}
-
-function renderChart() {
-  const bucketEntries = filteredEntries();
-  const byDate = {};
-  bucketEntries.forEach(e => {
-    byDate[e.date] = byDate[e.date] || { total: 0, after18: 0, latestCallHour: -1 };
-    byDate[e.date].total += e.drops;
-    if (e.hour === 'After 18:00') {
-      byDate[e.date].after18 += e.drops;
-    } else if (e.attempts > 0) {
-      const hs = hourStartNum(e.hour);
-      if (hs !== null && hs > byDate[e.date].latestCallHour) byDate[e.date].latestCallHour = hs;
-    }
-  });
-
-  const dates = Object.keys(byDate).sort();
-  const lateData = dates.map(d => {
-    const rec = byDate[d];
-    if (rec.latestCallHour < 14 || !rec.total) return null;
-    return +(rec.after18 / rec.total * 100).toFixed(1);
-  });
-  const earlyData = dates.map(d => {
-    const rec = byDate[d];
-    if (rec.latestCallHour === -1 || rec.latestCallHour >= 14 || !rec.total) return null;
-    return +(rec.after18 / rec.total * 100).toFixed(1);
-  });
-
-  document.getElementById('trendChartTitle').textContent =
-    `After-18:00 ${bucketLabel()} drop share, by date — coloured by whether it was called late that day`;
-
-  if (chartInstance) chartInstance.destroy();
-  const ctx = document.getElementById('trendChart');
-  chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: dates,
-      datasets: [
-        { label: 'Called late (14:00+)', data: lateData, borderColor: '#4f8ef7', backgroundColor: '#4f8ef7', spanGaps: false, pointRadius: 6, borderWidth: 2, showLine: false },
-        { label: 'Called early only (before 14:00)', data: earlyData, borderColor: '#7c8697', backgroundColor: '#7c8697', spanGaps: false, pointRadius: 6, borderWidth: 2, showLine: false }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#8b93a1' } } },
-      scales: {
-        y: { beginAtZero: true, ticks: { color: '#8b93a1', callback: v => v+'%' }, grid: { color: '#333944' } },
-        x: { ticks: { color: '#8b93a1' }, grid: { display: false } }
-      }
-    }
-  });
-}
-
-function renderHourRateChart() {
-  const bucketEntries = filteredEntries();
-  const { byHour } = connRateByHour(bucketEntries);
-  const HOUR_ORDER = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18'];
-  const labels = HOUR_ORDER.filter(h => byHour[h] && byHour[h].a > 0);
-  const rates = labels.map(h => +(byHour[h].c / byHour[h].a * 100).toFixed(1));
-
-  document.getElementById('hourChartTitle').textContent = `${bucketLabel()} connect rate by hour (all logged days)`;
-
-  if (hourChartInstance) hourChartInstance.destroy();
-  const ctx = document.getElementById('hourRateChart');
-  hourChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{ label: 'Connect rate', data: rates, backgroundColor: '#2dd4bf', borderRadius: 4, maxBarThickness: 40 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, ticks: { color: '#8b93a1', callback: v => v+'%' }, grid: { color: '#333944' } },
-        x: { ticks: { color: '#8b93a1' }, grid: { display: false } }
-      }
-    }
-  });
-}
-
-// --- CSV import ---
-const VALID_CYCLES = ['202606','202607','202608'];
-const VALID_BUCKETS = ['R0','R1','R2','R3'];
-const VALID_HOURS = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','After 18:00'];
-
-document.getElementById('downloadTemplateBtn').addEventListener('click', () => {
-  const header = 'date,cycle,arm,bucket,hour,agents,attempts,connects,drops,target,notes\n';
-  const example = '2026-07-01,202607,,R0,17-18,4,471,246,475,269,\n';
-  const blob = new Blob([header + example], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'r0_tracker_template.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-});
-
-document.getElementById('csvFile').addEventListener('change', (evt) => {
-  const file = evt.target.files[0];
-  const importMsg = document.getElementById('importMsg');
-  importMsg.classList.remove('err');
-  if (!file) return;
-
-  Papa.parse(file, {
-    header: true,
-    skipEmptyLines: true,
-    complete: async (results) => {
-      let added = 0;
-      const errors = [];
-
-      results.data.forEach((row, i) => {
-        const rowNum = i + 2;
-        const date = (row.date || '').trim();
-        const cycle = (row.cycle || '').trim();
-        const arm = (row.arm || '').trim();
-        const bucket = (row.bucket || '').trim().toUpperCase();
-        const hour = (row.hour || '').trim();
-
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${rowNum}: bad or missing date`); return; }
-        if (!VALID_CYCLES.includes(cycle)) { errors.push(`Row ${rowNum}: cycle must be 202606/202607/202608`); return; }
-        if (!VALID_BUCKETS.includes(bucket)) { errors.push(`Row ${rowNum}: bucket must be R0-R3`); return; }
-        if (!VALID_HOURS.includes(hour)) { errors.push(`Row ${rowNum}: unrecognised hour segment "${hour}"`); return; }
-
-        entries.push({
-          id: Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + i,
-          date, cycle, arm, bucket, hour,
-          agents: Number(row.agents) || 0,
-          attempts: Number(row.attempts) || 0,
-          connects: Number(row.connects) || 0,
-          drops: Number(row.drops) || 0,
-          target: row.target && row.target.trim() !== '' ? Number(row.target) : null,
-          notes: (row.notes || '').trim()
-        });
-        added++;
-      });
-
-      await saveEntries();
+    document.getElementById('dateInput').addEventListener('change', async (e) => {
+      state.date = e.target.value;
+      if (!state.logs[state.date]) await loadLog(state.date);
       render();
-
-      if (added && !errors.length) {
-        importMsg.textContent = `Imported ${added} row(s) successfully.`;
-      } else if (added && errors.length) {
-        importMsg.textContent = `Imported ${added} row(s). Skipped ${errors.length}: ${errors.slice(0,3).join('; ')}${errors.length > 3 ? '…' : ''}`;
-        importMsg.classList.add('err');
-      } else {
-        importMsg.textContent = `No rows imported. ${errors.slice(0,3).join('; ')}`;
-        importMsg.classList.add('err');
-      }
-      evt.target.value = '';
-    },
-    error: (err) => {
-      importMsg.textContent = 'Could not read that file — make sure it\'s a valid CSV.';
-      importMsg.classList.add('err');
-    }
-  });
-});
-
-// --- Dashboard-native import ---
-function hourLabel(h) {
-  if (h < 8) return 'Before 08';
-  if (h >= 18) return 'After 18:00';
-  const pad = x => String(x).padStart(2, '0');
-  return `${pad(h)}-${pad(h + 1)}`;
-}
-
-function segmentToLabel(seg) {
-  seg = (seg || '').trim();
-  if (/^before/i.test(seg)) return 'Before 08';
-  if (/^after/i.test(seg)) return 'After 18:00';
-  const m = seg.match(/^(\d{1,2})/);
-  if (m) return hourLabel(parseInt(m[1], 10));
-  return null;
-}
-
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsText(file);
-  });
-}
-
-// Parses an agent x hour matrix export -> { hourLabel: { sum, agentCount } }
-function parseAgentHourMatrix(text) {
-  const parsed = Papa.parse(text.trim(), { skipEmptyLines: true });
-  const rows = parsed.data;
-  if (!rows.length) return {};
-  const header = rows[0];
-  const hourCols = [];
-  for (let j = 1; j < header.length; j++) {
-    const h = parseInt(String(header[j]).trim(), 10);
-    if (!isNaN(h)) hourCols.push({ col: j, label: hourLabel(h) });
-  }
-  const out = {};
-  hourCols.forEach(hc => out[hc.label] = { sum: 0, agentCount: 0 });
-
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || row.length < 2) continue;
-    hourCols.forEach(hc => {
-      const raw = (row[hc.col] || '').toString().trim();
-      if (raw === '' ) return;
-      if (raw === '-') return; // agent had no activity that hour
-      const num = parseInt(raw, 10);
-      if (!isNaN(num)) {
-        out[hc.label].sum += num;
-        out[hc.label].agentCount += 1;
-      }
     });
-  }
-  return out;
-}
-
-// Parses the TIME_SEGMENT / target / actual drops export -> { hourLabel: { target, actual } }
-function parseDropsExport(text) {
-  const parsed = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
-  const out = {};
-  parsed.data.forEach(row => {
-    const label = segmentToLabel(row.TIME_SEGMENT);
-    if (!label) return;
-    const targetRaw = (row['Hourly target'] || '').toString().trim();
-    const actualRaw = (row['Hourly actual'] || '').toString().trim();
-    out[label] = {
-      target: (targetRaw === '' || targetRaw.toLowerCase() === 'null') ? null : Number(targetRaw),
-      actual: actualRaw === '' ? 0 : Number(actualRaw)
-    };
-  });
-  return out;
-}
-
-document.getElementById('processDashBtn').addEventListener('click', async () => {
-  const msg = document.getElementById('dashMsg');
-  msg.classList.remove('err');
-
-  if (currentBucket === 'ALL') {
-    msg.textContent = 'Pick a specific bucket tab (R0-R3) first — "All buckets" is a view-only overview.';
-    msg.classList.add('err');
-    return;
-  }
-
-  const date = fieldVal('d-date');
-  if (!date) { msg.textContent = 'Pick a date first.'; msg.classList.add('err'); return; }
-  const cycle = fieldVal('d-cycle');
-  const arm = fieldVal('d-arm');
-  const bucket = currentBucket;
-
-  const attemptsFile = document.getElementById('d-attempts').files[0];
-  const connectsFile = document.getElementById('d-connects').files[0];
-  const dropsFile = document.getElementById('d-drops').files[0];
-
-  if (!attemptsFile && !connectsFile && !dropsFile) {
-    msg.textContent = 'Upload at least one file.';
-    msg.classList.add('err');
-    return;
-  }
-
-  try {
-    const attemptsByHour = attemptsFile ? parseAgentHourMatrix(await readFileAsText(attemptsFile)) : {};
-    const connectsByHour = connectsFile ? parseAgentHourMatrix(await readFileAsText(connectsFile)) : {};
-    const dropsByHour = dropsFile ? parseDropsExport(await readFileAsText(dropsFile)) : {};
-
-    const allHours = new Set([
-      ...Object.keys(attemptsByHour),
-      ...Object.keys(connectsByHour),
-      ...Object.keys(dropsByHour)
-    ]);
-
-    if (!allHours.size) {
-      msg.textContent = 'Could not find any recognisable hour columns in those files.';
-      msg.classList.add('err');
-      return;
-    }
-
-    const HOUR_ORDER = ['Before 08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','After 18:00'];
-    const sortedHours = [...allHours].sort((a,b) => HOUR_ORDER.indexOf(a) - HOUR_ORDER.indexOf(b));
-
-    let count = 0;
-    sortedHours.forEach((hour, i) => {
-      const a = attemptsByHour[hour];
-      const c = connectsByHour[hour];
-      const d = dropsByHour[hour];
-      entries.push({
-        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + i,
-        date, cycle, arm, bucket, hour,
-        agents: a ? a.agentCount : 0,
-        attempts: a ? a.sum : 0,
-        connects: c ? c.sum : 0,
-        drops: d ? d.actual : 0,
-        target: d ? d.target : null,
-        notes: ''
+    document.getElementById('targetInput').addEventListener('change', async (e) => {
+      state.target = Number(e.target.value) || TARGET_DEFAULT;
+      await saveSettings(); render();
+    });
+    document.getElementById('cycleEndInput').addEventListener('change', async (e) => {
+      state.cycleEnd = e.target.value || CYCLE_END_DEFAULT;
+      await saveSettings(); render();
+    });
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => { document.getElementById('pasteArea').value = ev.target.result; };
+      reader.readAsText(file);
+    });
+    document.getElementById('applyBtn').addEventListener('click', async () => {
+      const text = document.getElementById('pasteArea').value;
+      const statusEl = document.getElementById('statusMsg');
+      if (!db) {
+        statusEl.textContent = "Firebase isn't configured yet — see the yellow banner above.";
+        statusEl.className = "status-msg show status-warn"; return;
+      }
+      if (!text.trim()) {
+        statusEl.textContent = "Paste or upload a CSV first.";
+        statusEl.className = "status-msg show status-warn"; return;
+      }
+      const parsed = parseCsv(text);
+      const collected = matchRoster(parsed);
+      const matchedCount = Object.values(collected).filter(v => v !== null).length;
+      await saveLog(state.date, collected);
+      await refreshHistoryList();
+      statusEl.textContent = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.` +
+        (matchedCount < ROSTER.length ? " Unmatched agents show as no data." : "");
+      statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
+      render();
+    });
+    document.getElementById('clearBtn').addEventListener('click', async () => {
+      await saveLog(state.date, {});
+      document.getElementById('pasteArea').value = '';
+      render();
+    });
+    const histSelect = document.getElementById('histSelect');
+    if (histSelect) {
+      histSelect.addEventListener('change', async (e) => {
+        if (!e.target.value) return;
+        state.date = e.target.value;
+        if (!state.logs[state.date]) await loadLog(state.date);
+        render();
       });
-      count++;
-    });
-
-    await saveEntries();
-    render();
-    msg.textContent = `Added ${count} hour segment(s) for ${bucket} on ${date}.`;
-
-    ['d-attempts','d-connects','d-drops'].forEach(id => document.getElementById(id).value = '');
-  } catch (err) {
-    msg.textContent = 'Something went wrong reading those files — check they\'re unedited exports.';
-    msg.classList.add('err');
+    }
   }
-});
 
-// set default date to today
-document.getElementById('f-date').valueAsDate = new Date();
-document.getElementById('d-date').valueAsDate = new Date();
+  async function init(){
+    if (db) {
+      await loadSettings();
+      await seedBaselineIfEmpty();
+      await refreshHistoryList();
+      await loadLog(state.date);
+      if (!state.logs[BASELINE_DATE]) await loadLog(BASELINE_DATE);
 
-initFirebase();
+      // live sync: re-render whenever any log changes, so everyone sees updates instantly
+      db.ref('logs').on('value', async (snap) => {
+        if (!snap.exists()) return;
+        const raw = snap.val();
+        state.histDates = Object.keys(raw).sort();
+        for (const d of state.histDates) state.logs[d] = decodeLogObj(raw[d]);
+        render();
+      });
+      db.ref('settings').on('value', (snap) => {
+        if (!snap.exists()) return;
+        const s = snap.val();
+        state.target = s.target ?? TARGET_DEFAULT;
+        state.cycleEnd = s.cycleEnd ?? CYCLE_END_DEFAULT;
+        state.overrides = s.overrides || {};
+        render();
+      });
+    }
+    render();
+  }
+  init();
+})();
 </script>
 </body>
 </html>
