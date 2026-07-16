@@ -1692,10 +1692,9 @@ function doCloseCycle() {
   render();
   if (typeof csApply === 'function') setTimeout(csApply, 100);
 
-  alert('\u2713 ' + active.label + ' closed and archived.\n' +
-    (portPct !== null ? 'Final client penetration: ' + totalPaid + '/' + totalDue + ' (' + portPct + '%)\n' : '') +
-    'Now in: ' + ninfo.label + ' (' + ninfo.startLabel + ' \u2013 ' + ninfo.endLabel + ')\n' +
-    'Calling list cleared for new cycle. Cycle Settings updated automatically.');
+  var alertMsg = active.label + ' closed. Now in: ' + ninfo.label + ' (' + ninfo.startLabel + ' - ' + ninfo.endLabel + '). Calling list cleared.';
+  if (portPct !== null) alertMsg += ' Client penetration: ' + totalPaid + '/' + totalDue + ' (' + portPct + '%).';
+  alert(alertMsg);
 }
 
 function updatePageTitle() {
@@ -1820,9 +1819,17 @@ function renderInsights() {
 
   // -- QUICK SUMMARY ------------------------------------------
   var now2 = new Date();
-  var cycleStart2 = new Date(2026, 5, 11);
+  var cYr2 = (window._CYCLE_YR) || 2026;
+  var cMo2 = (window._CYCLE_MO) || 7;
+  var cycleStart2 = new Date(cYr2, cMo2 - 1, 11);
   var cycleDay2 = Math.floor((now2 - cycleStart2) / (1000*60*60*24)) + 1;
-  var daysLeft = 30 - cycleDay2;
+  var cycleLen2 = (cMo2===2) ? 31 : (new Date(cYr2, cMo2, 0).getDate() + (11 - 1));
+  // Simplify: cycle length = days from 11th to 10th next month
+  var nextMo2 = cMo2===12 ? 1 : cMo2+1;
+  var nextYr2 = cMo2===12 ? cYr2+1 : cYr2;
+  var cycleEnd2 = new Date(nextYr2, nextMo2-1, 10);
+  var totalCycleDays = Math.round((cycleEnd2 - cycleStart2)/86400000) + 1;
+  var daysLeft = totalCycleDays - cycleDay2;
   var alwaysTotal = DATA.filter(function(r){ return r[5]===5; }).length;
   var alwaysZeroCount = DATA.filter(function(r){ return r[5]===5 && getLiveCount(r)===0; }).length;
   var repeatCount = DATA.filter(function(r){ return r[9]===1; }).length;
@@ -1830,9 +1837,9 @@ function renderInsights() {
   var boostedNoPay = boostedNotPaying.length + boostedLow.length;
 
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">' +
-    _scard('Day '+cycleDay2+' of 30', daysLeft+' days left', daysLeft<=5?'#791F1F':daysLeft<=10?'#7A5C00':'#27500A') +
+    _scard('Day '+cycleDay2+' of '+totalCycleDays, daysLeft+' days left', daysLeft<=5?'#791F1F':daysLeft<=10?'#7A5C00':'#27500A') +
     _scard('Cycle Progress', cyclePct+'% collected', cyclePct>=60?'#27500A':cyclePct>=35?'#7A5C00':'#791F1F') +
-    _scard('Total Jun Payments', totalJun.toLocaleString(), '#111') +
+    _scard(usingClientMetric ? 'Clients Paid' : 'Total Payments', totalCurr.toLocaleString(), '#111') +
     _scard('Avg Full Cycle', '~'+Math.round(totalAvg).toLocaleString(), '#555') +
     _scard('Always-pay Employers', alwaysTotal.toLocaleString(), '#27500A') +
     _scard('Always-pay, Zero Jun', alwaysZeroCount.toLocaleString(), alwaysZeroCount>500?'#791F1F':'#7A5C00') +
@@ -1842,8 +1849,8 @@ function renderInsights() {
     '</div>';
   html += '<div style="margin-bottom:20px;padding:14px 16px;background:#F8F8F8;border-radius:8px;border:1px solid #eee">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
-    '<span style="font-weight:600;font-size:14px">Cycle 202606 Progress</span>' +
-    '<span style="font-size:13px;color:#555">'+totalJun.toLocaleString()+' of ~'+Math.round(totalAvg).toLocaleString()+' avg</span></div>' +
+    '<span style="font-weight:600;font-size:14px">Cycle '+((window._CYCLE_YR||2026)+''+(((window._CYCLE_MO||7)<10?'0':'')+(window._CYCLE_MO||7)))+' Progress</span>' +
+    '<span style="font-size:13px;color:#555">'+totalCurr.toLocaleString()+' of '+(usingClientMetric?'':'~')+Math.round(totalAvg).toLocaleString()+' avg</span></div>' +
     '<div style="background:#e0e0e0;border-radius:4px;height:10px"><div style="background:'+(cyclePct>=60?'#27500A':cyclePct>=30?'#7A5C00':'#A32D2D')+';width:'+Math.min(cyclePct,100)+'%;height:10px;border-radius:4px"></div></div>' +
     '<div style="font-size:12px;color:#666;margin-top:4px">'+cyclePct+'% of average full-cycle total collected so far</div></div>';
 
