@@ -1692,12 +1692,9 @@ function doCloseCycle() {
   render();
   if (typeof csApply === 'function') setTimeout(csApply, 100);
 
-  alert('\u2713 ' + active.label + ' closed and archived.
-' +
-    (portPct !== null ? 'Final client penetration: ' + totalPaid + '/' + totalDue + ' (' + portPct + '%)
-' : '') +
-    'Now in: ' + ninfo.label + ' (' + ninfo.startLabel + ' \u2013 ' + ninfo.endLabel + ')
-' +
+  alert('\u2713 ' + active.label + ' closed and archived.\n' +
+    (portPct !== null ? 'Final client penetration: ' + totalPaid + '/' + totalDue + ' (' + portPct + '%)\n' : '') +
+    'Now in: ' + ninfo.label + ' (' + ninfo.startLabel + ' \u2013 ' + ninfo.endLabel + ')\n' +
     'Calling list cleared for new cycle. Cycle Settings updated automatically.');
 }
 
