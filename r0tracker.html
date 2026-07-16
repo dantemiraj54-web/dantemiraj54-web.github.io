@@ -182,6 +182,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     { alias: "Milly",           full: "Milly Nakkazi" },
     { alias: "Stella",          full: "Akademere Stella Slyvia" },
     { alias: "Florence Mebra",  full: "Florence Kaudha" },
+    { alias: "Arthur",          full: "Arthur Ssemwezzi" },
   ];
 
   const TARGET_DEFAULT = 92100000;
@@ -195,7 +196,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     "Babirye Violla": 3522000, "Elizabeth Kemigisa": 2693000, "Ankwatsiibwe Angel": 6044400,
     "Mercy  Atusasiire": 3526000, "Flavia Nangonzi": 4031800, "Kenneth Birungi": 1873000,
     "Gloria Nahirya": 1294000, "Manita Joan": 2585000, "Milly Nakkazi": 5036700,
-    "Akademere Stella Slyvia": 4927100, "Florence Kaudha": 1418500
+    "Akademere Stella Slyvia": 4927100, "Florence Kaudha": 1418500, "Arthur Ssemwezzi": 200000
   };
 
   function norm(s){ return (s||"").replace(/\s+/g,' ').trim().toLowerCase(); }
@@ -329,8 +330,16 @@ if (!CONFIG_IS_PLACEHOLDER) {
   }
   async function saveLog(date, collectedByFull){
     if (!db) return;
-    await db.ref('logs/'+date).set(encodeLogObj(collectedByFull));
-    state.logs[date] = collectedByFull;
+    const encoded = encodeLogObj(collectedByFull);
+    if (Object.keys(encoded).length > 0) {
+      await db.ref('logs/'+date).update(encoded);
+    }
+    state.logs[date] = { ...(state.logs[date] || {}), ...collectedByFull };
+  }
+  async function clearLog(date){
+    if (!db) return;
+    await db.ref('logs/'+date).remove();
+    state.logs[date] = {};
   }
   async function refreshHistoryList(){
     if (!db) { state.histDates = []; return; }
@@ -603,7 +612,7 @@ Milly Nakkazi,5300000
     });
     const clearBtnEl = document.getElementById('clearBtn');
     if (clearBtnEl) clearBtnEl.addEventListener('click', async () => {
-      await saveLog(state.date, {});
+      await clearLog(state.date);
       document.getElementById('pasteArea').value = '';
       render();
     });
