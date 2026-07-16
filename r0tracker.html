@@ -119,6 +119,19 @@
   .login-form button { background:#fff; color:var(--navy); border:none; border-radius:7px; padding:7px 14px; font-size:12.5px; font-weight:700; cursor:pointer; }
   .login-error { font-size:12px; color:#FF9A73; margin-top:6px; }
   .view-only-note { color: var(--ink-soft); font-size:13px; background: var(--base-bg); border-radius:10px; padding:12px 14px; }
+
+  .filter-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
+  .filter-toggle { background:transparent; border:1px solid var(--line); color:var(--navy); border-radius:8px; padding:7px 13px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .filter-toggle:hover { background:#F0F2F6; }
+  .filter-count { font-size:12px; color:var(--ink-soft); }
+  .filter-panel { border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; background:#FAFBFD; }
+  .filter-actions { display:flex; gap:8px; margin-bottom:12px; }
+  .filter-actions button { background:#fff; border:1px solid var(--line); color:var(--navy); border-radius:7px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; }
+  .filter-actions button:hover { background:#F0F2F6; }
+  .filter-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:8px 10px; }
+  .filter-item { display:flex; align-items:center; gap:7px; font-size:13px; }
+  .filter-item input { width:15px; height:15px; cursor:pointer; }
+  .filter-item label { cursor:pointer; }
 </style>
 </head>
 <body>
@@ -218,7 +231,20 @@ if (!CONFIG_IS_PLACEHOLDER) {
     isAdmin: false,
     loginOpen: false,
     loginError: "",
+    selectedAgents: [],   // empty = show all
+    filterOpen: false,
   };
+
+  function loadFilterFromStorage(){
+    try {
+      const raw = localStorage.getItem('tracker-agent-filter');
+      if (raw) state.selectedAgents = JSON.parse(raw);
+    } catch(e) { /* ignore */ }
+  }
+  function saveFilterToStorage(){
+    try { localStorage.setItem('tracker-agent-filter', JSON.stringify(state.selectedAgents)); }
+    catch(e) { /* ignore */ }
+  }
 
   const app = document.getElementById('app');
 
@@ -331,7 +357,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const prevDate = prevLoggedDate(state.date);
     const prev = prevDate ? state.logs[prevDate] : null;
 
-    const rows = ROSTER.map(r => {
+    const rowsAll = ROSTER.map(r => {
       const tgt = targetFor(r.full);
       const cumNow = cur ? cur[r.full] : null;
       const cumPrev = prev ? prev[r.full] : null;
@@ -352,6 +378,8 @@ if (!CONFIG_IS_PLACEHOLDER) {
 
       return { ...r, tgt, cumNow, hasNow, hasPrev, todayCollected, requiredToday, hit, shortfall, remaining, nextPace };
     });
+    const hasFilter = state.selectedAgents.length > 0;
+    const rows = hasFilter ? rowsAll.filter(r => state.selectedAgents.includes(r.full)) : rowsAll;
 
     const measured = rows.filter(r => r.hasNow && r.hasPrev);
     const hitCount = measured.filter(r => r.hit).length;
@@ -432,7 +460,27 @@ Milly Nakkazi,5300000
 
         <div class="card">
           <h2>Standings &mdash; ${state.date}</h2>
-          ${!cur ? `<div class="empty-note">No CSV logged for this date yet. Paste or upload above.</div>` : `
+          <div class="filter-bar">
+            <span class="filter-count">${hasFilter ? `Showing ${rows.length} of ${ROSTER.length} agents` : `Showing all ${ROSTER.length} agents`}</span>
+            <button class="filter-toggle" id="filterToggleBtn">${state.filterOpen ? 'Hide filter' : 'Filter agents'}</button>
+          </div>
+          ${state.filterOpen ? `
+            <div class="filter-panel">
+              <div class="filter-actions">
+                <button id="filterAllBtn">Select all</button>
+                <button id="filterNoneBtn">Clear filter</button>
+              </div>
+              <div class="filter-grid">
+                ${ROSTER.map(r => `
+                  <div class="filter-item">
+                    <input type="checkbox" id="chk_${keySafe(r.full)}" data-full="${encodeURIComponent(r.full)}" ${(!hasFilter || state.selectedAgents.includes(r.full)) ? 'checked' : ''}>
+                    <label for="chk_${keySafe(r.full)}">${r.alias}</label>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          ${!cur ? `<div class="empty-note">No CSV logged for this date yet. Paste or upload above.</div>` : (rows.length === 0 ? `<div class="empty-note">No agents match the current filter.</div>` : `
           ${isBaselineOnly ? `<div class="sub">This is the first day logged, so there's no prior total to measure today's collection against yet &mdash; showing cumulative standing and the pace needed going forward. Once you log the next day's CSV, hit/miss will show.</div>` : ''}
           <table>
             <thead>
@@ -461,7 +509,7 @@ Milly Nakkazi,5300000
               `).join('')}
             </tbody>
           </table>
-          `}
+          `)}
         </div>
 
         <div class="card">
@@ -568,9 +616,52 @@ Milly Nakkazi,5300000
         render();
       });
     }
+
+    const filterToggleBtn = document.getElementById('filterToggleBtn');
+    if (filterToggleBtn) {
+      filterToggleBtn.addEventListener('click', () => {
+        state.filterOpen = !state.filterOpen;
+        render();
+      });
+    }
+    const filterAllBtn = document.getElementById('filterAllBtn');
+    if (filterAllBtn) {
+      filterAllBtn.addEventListener('click', () => {
+        state.selectedAgents = [];
+        saveFilterToStorage();
+        render();
+      });
+    }
+    const filterNoneBtn = document.getElementById('filterNoneBtn');
+    if (filterNoneBtn) {
+      filterNoneBtn.addEventListener('click', () => {
+        state.selectedAgents = ROSTER.map(r => r.full).length ? [ROSTER[0].full] : [];
+        // "Clear filter" here means narrow to nothing selected visibly checked off;
+        // simplest reliable behavior: uncheck everything by selecting an empty, existing agent set
+        state.selectedAgents = ['__none__'];
+        saveFilterToStorage();
+        render();
+      });
+    }
+    document.querySelectorAll('.filter-item input[type="checkbox"]').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const currentlyAll = state.selectedAgents.length === 0;
+        let selected = currentlyAll ? ROSTER.map(r => r.full) : state.selectedAgents.slice();
+        selected = selected.filter(f => f !== '__none__');
+        document.querySelectorAll('.filter-item input[type="checkbox"]').forEach(c => {
+          const full = decodeURIComponent(c.dataset.full);
+          if (c.checked && !selected.includes(full)) selected.push(full);
+          if (!c.checked && selected.includes(full)) selected = selected.filter(f => f !== full);
+        });
+        state.selectedAgents = selected;
+        saveFilterToStorage();
+        render();
+      });
+    });
   }
 
   async function init(){
+    loadFilterFromStorage();
     if (auth) {
       auth.onAuthStateChanged((user) => {
         state.isAdmin = !!user;
