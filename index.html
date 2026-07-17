@@ -1741,7 +1741,7 @@ function updatePageTitle() {
     var cycleStart = new Date(2026, 6, 11); // July 11, 2026
     var diffMs = now - cycleStart;
     var cycleDay = Math.floor(diffMs / (1000*60*60*24)) + 1;
-    var cycleDayStr = (cycleDay >= 1 && cycleDayay <= 30) ? ' \u00b7 Day '+cycleDay+' of 30' : '';
+    var cycleDayStr = (cycleDay >= 1 && cycleDay <= 31) ? ' \u00b7 Day '+cycleDay+' of 31' : '';
     subEl.textContent = 'Today: '+dateStr+cycleDayStr+' \u00b7 Cycle: '+cycle.startLabel+' \u2013 '+cycle.endLabel;
   }
 }
