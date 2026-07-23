@@ -146,7 +146,9 @@
   .trend-up { color: var(--hit); font-weight:700; }
   .trend-down { color: var(--miss); font-weight:700; }
   .trend-flat { color: var(--ink-soft); font-weight:700; }
-  .trend-chart { width:100%; height:auto; display:block; }
+  .trend-chart { height:auto; display:block; }
+  .trend-scroll { overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; scrollbar-width:thin; }
+  .scroll-hint { font-size:11px; color:var(--ink-soft); text-align:right; margin-top:2px; }
   .trend-chart .bar-hit { fill: var(--hit); }
   .trend-chart .bar-miss { fill: var(--miss); }
   .trend-chart .req-line { fill:none; stroke: var(--navy); stroke-width:2; stroke-dasharray:4,3; }
@@ -393,22 +395,34 @@ if (!CONFIG_IS_PLACEHOLDER) {
   // Builds the day-over-day (collected vs required-that-day) series for one agent,
   // across every consecutive pair of logged dates. This is derived, not stored —
   // the DB only holds cumulative totals per date.
-  // Turns the raw series into the numbers a manager actually opens a feedback
-  // conversation with: average % of required pace, and whether the recent
-  // days are trending up or down relative to the earlier days in view.
+  function average(arr){ return arr.reduce((a,b)=>a+b,0) / arr.length; }
+
+  // Compares a fixed-size recent window against the window before it, rather
+  // than splitting the whole history in half. Otherwise, the longer the cycle
+  // runs, the more a genuine recent slide gets buried inside an ever-growing
+  // "second half" average — the opposite of what a feedback signal should do.
   function paceStats(series){
     const pcts = series.filter(p => p.required > 0).map(p => (p.collected / p.required) * 100);
-    if (pcts.length === 0) return { avgPct: null, trend: 'flat' };
-    const avgPct = pcts.reduce((a,b)=>a+b,0) / pcts.length;
+    if (pcts.length === 0) return { avgPct: null, trend: 'flat', stillBelowPace: false };
+    const avgPct = average(pcts);
+    const stillBelowPace = avgPct < 100;
+    const WINDOW = 5;
     let trend = 'flat';
     if (pcts.length >= 4) {
-      const mid = Math.floor(pcts.length / 2);
-      const a1 = pcts.slice(0, mid).reduce((a,b)=>a+b,0) / mid;
-      const a2 = pcts.slice(mid).reduce((a,b)=>a+b,0) / (pcts.length - mid);
+      let recent, prior;
+      if (pcts.length >= WINDOW * 2) {
+        recent = pcts.slice(-WINDOW);
+        prior = pcts.slice(-WINDOW * 2, -WINDOW);
+      } else {
+        const mid = Math.floor(pcts.length / 2);
+        recent = pcts.slice(mid);
+        prior = pcts.slice(0, mid);
+      }
+      const a1 = average(prior), a2 = average(recent);
       if (a2 > a1 + 5) trend = 'improving';
       else if (a2 < a1 - 5) trend = 'declining';
     }
-    return { avgPct, trend };
+    return { avgPct, trend, stillBelowPace };
   }
 
   function seriesFor(fullName, tgt){
@@ -428,9 +442,15 @@ if (!CONFIG_IS_PLACEHOLDER) {
   }
 
   function renderAgentSpark(alias, series){
-    const W = 640, H = 160, padL = 38, padR = 10, padTop = 22, padBottom = 20;
+    const H = 160, padL = 38, padR = 10, padTop = 22, padBottom = 20;
     const chartH = H - padTop - padBottom;
     const n = series.length;
+    const MIN_SPACING = 46; // fixed px per logged day, so bars stay readable as days pile up
+    const BASE_W = 640;     // default width when there aren't enough days to need scrolling yet
+    const contentW = padL + padR + Math.max(n-1,0) * MIN_SPACING;
+    const W = Math.max(BASE_W, contentW);
+    const needsScroll = W > BASE_W;
+
     const spacing = n > 1 ? (W - padL - padR) / (n - 1) : (W - padL - padR);
     const barW = Math.max(6, Math.min(34, spacing * 0.5));
 
@@ -476,14 +496,17 @@ if (!CONFIG_IS_PLACEHOLDER) {
       return `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${H-4}" text-anchor="${anchorFor(i)}">${shortDate(p.date)}</text>`;
     }).join('');
 
-    return `<svg class="trend-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-      ${gridlines}
-      <line class="zero-line" x1="${padL}" y1="${(padTop+chartH).toFixed(1)}" x2="${W-padR}" y2="${(padTop+chartH).toFixed(1)}"></line>
-      ${bars}
-      <polyline class="req-line" points="${linePts}"></polyline>
-      ${reqLabels}
-      ${labels}
-    </svg>`;
+    return `<div class="trend-scroll">
+      <svg class="trend-chart" style="width:${W}px" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        ${gridlines}
+        <line class="zero-line" x1="${padL}" y1="${(padTop+chartH).toFixed(1)}" x2="${W-padR}" y2="${(padTop+chartH).toFixed(1)}"></line>
+        ${bars}
+        <polyline class="req-line" points="${linePts}"></polyline>
+        ${reqLabels}
+        ${labels}
+      </svg>
+    </div>
+    ${needsScroll ? `<div class="scroll-hint">&#8596; scroll to see earlier days</div>` : ''}`;
   }
 
   function renderTrendCard(rows, hasFilter){
@@ -505,8 +528,10 @@ if (!CONFIG_IS_PLACEHOLDER) {
       </div>
       ${agents.map(a => {
         const stats = paceStats(a.series);
-        const trendLabel = stats.trend === 'improving' ? '&#8599; improving'
-          : stats.trend === 'declining' ? '&#8600; declining' : '&#8594; flat';
+        const trendLabel = stats.trend === 'improving'
+          ? (stats.stillBelowPace ? '&#8599; improving, still below pace' : '&#8599; improving')
+          : stats.trend === 'declining' ? '&#8600; declining'
+          : '&#8594; flat';
         const trendCls = stats.trend === 'improving' ? 'trend-up'
           : stats.trend === 'declining' ? 'trend-down' : 'trend-flat';
         return `
@@ -515,7 +540,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
             <span class="trend-agent-name">${a.alias}</span>
             <span class="trend-agent-stat">
               ${stats.avgPct !== null ? `Avg <strong>${Math.round(stats.avgPct)}%</strong> of pace &middot; ` : ''}
-              <span class="${trendCls}">${trendLabel} over this period</span>
+              <span class="${trendCls}">${trendLabel}</span>
               &middot; ${a.series.filter(p=>p.hit).length} hit / ${a.series.filter(p=>!p.hit).length} missed of ${a.series.length} days
             </span>
           </div>
