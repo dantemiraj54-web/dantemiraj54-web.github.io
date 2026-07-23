@@ -142,12 +142,19 @@
   .trend-agent-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom: 6px; flex-wrap:wrap; gap:6px; }
   .trend-agent-name { font-weight:700; font-size:13.5px; }
   .trend-agent-stat { font-size:12px; color:var(--ink-soft); }
+  .trend-agent-stat strong { color: var(--ink); }
+  .trend-up { color: var(--hit); font-weight:700; }
+  .trend-down { color: var(--miss); font-weight:700; }
+  .trend-flat { color: var(--ink-soft); font-weight:700; }
   .trend-chart { width:100%; height:auto; display:block; }
   .trend-chart .bar-hit { fill: var(--hit); }
   .trend-chart .bar-miss { fill: var(--miss); }
   .trend-chart .req-line { fill:none; stroke: var(--navy); stroke-width:2; stroke-dasharray:4,3; }
   .trend-chart .axis-label { font-size:9px; fill: var(--ink-soft); font-family: -apple-system, sans-serif; }
   .trend-chart .zero-line { stroke: var(--line); stroke-width:1; }
+  .trend-chart .grid-line { stroke: var(--line); stroke-width:1; stroke-dasharray:2,3; }
+  .trend-chart .bar-label { font-size:10px; font-weight:700; fill: var(--ink); font-family: -apple-system, sans-serif; }
+  .trend-chart .req-label { font-size:10px; font-weight:700; fill: var(--navy); font-family: -apple-system, sans-serif; }
 </style>
 </head>
 <body>
@@ -386,6 +393,24 @@ if (!CONFIG_IS_PLACEHOLDER) {
   // Builds the day-over-day (collected vs required-that-day) series for one agent,
   // across every consecutive pair of logged dates. This is derived, not stored —
   // the DB only holds cumulative totals per date.
+  // Turns the raw series into the numbers a manager actually opens a feedback
+  // conversation with: average % of required pace, and whether the recent
+  // days are trending up or down relative to the earlier days in view.
+  function paceStats(series){
+    const pcts = series.filter(p => p.required > 0).map(p => (p.collected / p.required) * 100);
+    if (pcts.length === 0) return { avgPct: null, trend: 'flat' };
+    const avgPct = pcts.reduce((a,b)=>a+b,0) / pcts.length;
+    let trend = 'flat';
+    if (pcts.length >= 4) {
+      const mid = Math.floor(pcts.length / 2);
+      const a1 = pcts.slice(0, mid).reduce((a,b)=>a+b,0) / mid;
+      const a2 = pcts.slice(mid).reduce((a,b)=>a+b,0) / (pcts.length - mid);
+      if (a2 > a1 + 5) trend = 'improving';
+      else if (a2 < a1 - 5) trend = 'declining';
+    }
+    return { avgPct, trend };
+  }
+
   function seriesFor(fullName, tgt){
     const series = [];
     for (const d of state.histDates) {
@@ -403,7 +428,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
   }
 
   function renderAgentSpark(alias, series){
-    const W = 640, H = 130, padL = 4, padR = 4, padTop = 10, padBottom = 18;
+    const W = 640, H = 160, padL = 38, padR = 10, padTop = 22, padBottom = 20;
     const chartH = H - padTop - padBottom;
     const n = series.length;
     const spacing = n > 1 ? (W - padL - padR) / (n - 1) : (W - padL - padR);
@@ -412,31 +437,51 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const maxVal = Math.max(1, ...series.map(p => Math.max(p.collected, p.required, 0)));
 
     const yFor = v => padTop + chartH - (Math.max(v,0) / maxVal) * chartH;
-    const xFor = i => n > 1 ? padL + i * spacing : W/2;
+    const xFor = i => n > 1 ? padL + i * spacing : padL + (W - padL - padR)/2;
+    // keep edge labels/anchors from spilling outside the viewBox
+    const anchorFor = i => i === 0 ? 'start' : (i === n-1 ? 'end' : 'middle');
 
     const bars = series.map((p,i) => {
       const x = xFor(i) - barW/2;
       const y = yFor(p.collected);
       const h = Math.max(0, (padTop + chartH) - y);
       const cls = p.hit ? 'bar-hit' : 'bar-miss';
+      const labelY = Math.max(padTop - 2, y - 5);
       return `<rect class="${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2">
         <title>${p.date}: collected ${fmt(p.collected)}, required ${fmt(p.required)} (${p.hit ? 'hit' : 'missed'})</title>
-      </rect>`;
+      </rect>
+      <text class="bar-label" x="${xFor(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${fmtShort(p.collected)}</text>`;
     }).join('');
 
     const linePts = series.map((p,i) => `${xFor(i).toFixed(1)},${yFor(p.required).toFixed(1)}`).join(' ');
 
-    // label every date if few points, else thin them out so text doesn't overlap
+    // y-axis gridlines with readable scale values, so bars can be read without hovering
+    const gridFracs = [0.25, 0.5, 0.75];
+    const gridlines = gridFracs.map(f => {
+      const y = padTop + chartH - f*chartH;
+      return `<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}"></line>
+        <text class="axis-label" x="${(padL-6).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end">${fmtShort(f*maxVal)}</text>`;
+    }).join('');
+
+    // label the required line's value at its first and last point only, to avoid clutter
+    const reqLabels = [0, n-1].filter((v,i,arr) => arr.indexOf(v) === i).map(i => {
+      const y = yFor(series[i].required);
+      const labelY = Math.max(padTop - 2, y - 6);
+      return `<text class="req-label" x="${xFor(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="${anchorFor(i)}">${fmtShort(series[i].required)}</text>`;
+    }).join('');
+
     const labelEvery = n <= 8 ? 1 : Math.ceil(n / 8);
     const labels = series.map((p,i) => {
       if (i % labelEvery !== 0 && i !== n-1) return '';
-      return `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${shortDate(p.date)}</text>`;
+      return `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${H-4}" text-anchor="${anchorFor(i)}">${shortDate(p.date)}</text>`;
     }).join('');
 
     return `<svg class="trend-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${gridlines}
       <line class="zero-line" x1="${padL}" y1="${(padTop+chartH).toFixed(1)}" x2="${W-padR}" y2="${(padTop+chartH).toFixed(1)}"></line>
       ${bars}
       <polyline class="req-line" points="${linePts}"></polyline>
+      ${reqLabels}
       ${labels}
     </svg>`;
   }
@@ -458,15 +503,26 @@ if (!CONFIG_IS_PLACEHOLDER) {
         <span class="lg"><span class="sw" style="background:var(--miss)"></span>Collected &middot; missed</span>
         <span class="lg"><span class="ln"></span>Required that day</span>
       </div>
-      ${agents.map(a => `
+      ${agents.map(a => {
+        const stats = paceStats(a.series);
+        const trendLabel = stats.trend === 'improving' ? '&#8599; improving'
+          : stats.trend === 'declining' ? '&#8600; declining' : '&#8594; flat';
+        const trendCls = stats.trend === 'improving' ? 'trend-up'
+          : stats.trend === 'declining' ? 'trend-down' : 'trend-flat';
+        return `
         <div class="trend-agent">
           <div class="trend-agent-head">
             <span class="trend-agent-name">${a.alias}</span>
-            <span class="trend-agent-stat">${a.series.filter(p=>p.hit).length} hit / ${a.series.filter(p=>!p.hit).length} missed of ${a.series.length} days</span>
+            <span class="trend-agent-stat">
+              ${stats.avgPct !== null ? `Avg <strong>${Math.round(stats.avgPct)}%</strong> of pace &middot; ` : ''}
+              <span class="${trendCls}">${trendLabel} over this period</span>
+              &middot; ${a.series.filter(p=>p.hit).length} hit / ${a.series.filter(p=>!p.hit).length} missed of ${a.series.length} days
+            </span>
           </div>
           ${renderAgentSpark(a.alias, a.series)}
         </div>
-      `).join('')}
+      `;
+      }).join('')}
     </div>`;
   }
 
