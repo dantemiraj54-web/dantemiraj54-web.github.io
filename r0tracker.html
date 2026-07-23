@@ -132,6 +132,22 @@
   .filter-item { display:flex; align-items:center; gap:7px; font-size:13px; }
   .filter-item input { width:15px; height:15px; cursor:pointer; }
   .filter-item label { cursor:pointer; }
+
+  .trend-legend { display:flex; gap:18px; align-items:center; font-size:12px; color:var(--ink-soft); margin: -6px 0 16px; }
+  .trend-legend .lg { display:flex; align-items:center; gap:6px; }
+  .trend-legend .sw { width:12px; height:12px; border-radius:3px; display:inline-block; }
+  .trend-legend .ln { width:16px; height:0; border-top:2px dashed var(--ink-soft); display:inline-block; }
+  .trend-agent { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .trend-agent:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .trend-agent-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom: 6px; flex-wrap:wrap; gap:6px; }
+  .trend-agent-name { font-weight:700; font-size:13.5px; }
+  .trend-agent-stat { font-size:12px; color:var(--ink-soft); }
+  .trend-chart { width:100%; height:auto; display:block; }
+  .trend-chart .bar-hit { fill: var(--hit); }
+  .trend-chart .bar-miss { fill: var(--miss); }
+  .trend-chart .req-line { fill:none; stroke: var(--navy); stroke-width:2; stroke-dasharray:4,3; }
+  .trend-chart .axis-label { font-size:9px; fill: var(--ink-soft); font-family: -apple-system, sans-serif; }
+  .trend-chart .zero-line { stroke: var(--line); stroke-width:1; }
 </style>
 </head>
 <body>
@@ -355,6 +371,105 @@ if (!CONFIG_IS_PLACEHOLDER) {
     return earlier[earlier.length - 1];
   }
 
+  function fmtShort(n){
+    const a = Math.abs(n);
+    const sign = n < 0 ? '-' : '';
+    if (a >= 1e6) return sign + (a/1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+    if (a >= 1e3) return sign + (a/1e3).toFixed(0) + 'K';
+    return sign + Math.round(a);
+  }
+  function shortDate(d){
+    const parts = d.split('-'); // YYYY-MM-DD
+    return parts[1]+'/'+parts[2];
+  }
+
+  // Builds the day-over-day (collected vs required-that-day) series for one agent,
+  // across every consecutive pair of logged dates. This is derived, not stored —
+  // the DB only holds cumulative totals per date.
+  function seriesFor(fullName, tgt){
+    const series = [];
+    for (const d of state.histDates) {
+      const prevD = prevLoggedDate(d);
+      if (!prevD) continue; // no prior day logged yet, nothing to diff against
+      const cumNow = state.logs[d] ? state.logs[d][fullName] : null;
+      const cumPrev = state.logs[prevD] ? state.logs[prevD][fullName] : null;
+      if (cumNow === null || cumNow === undefined || cumPrev === null || cumPrev === undefined) continue;
+      const collected = cumNow - cumPrev;
+      const daysAtPrev = daysRemaining(d, state.cycleEnd);
+      const required = (tgt - cumPrev) / daysAtPrev;
+      series.push({ date: d, collected, required, hit: collected >= required });
+    }
+    return series;
+  }
+
+  function renderAgentSpark(alias, series){
+    const W = 640, H = 130, padL = 4, padR = 4, padTop = 10, padBottom = 18;
+    const chartH = H - padTop - padBottom;
+    const n = series.length;
+    const spacing = n > 1 ? (W - padL - padR) / (n - 1) : (W - padL - padR);
+    const barW = Math.max(6, Math.min(34, spacing * 0.5));
+
+    const maxVal = Math.max(1, ...series.map(p => Math.max(p.collected, p.required, 0)));
+
+    const yFor = v => padTop + chartH - (Math.max(v,0) / maxVal) * chartH;
+    const xFor = i => n > 1 ? padL + i * spacing : W/2;
+
+    const bars = series.map((p,i) => {
+      const x = xFor(i) - barW/2;
+      const y = yFor(p.collected);
+      const h = Math.max(0, (padTop + chartH) - y);
+      const cls = p.hit ? 'bar-hit' : 'bar-miss';
+      return `<rect class="${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2">
+        <title>${p.date}: collected ${fmt(p.collected)}, required ${fmt(p.required)} (${p.hit ? 'hit' : 'missed'})</title>
+      </rect>`;
+    }).join('');
+
+    const linePts = series.map((p,i) => `${xFor(i).toFixed(1)},${yFor(p.required).toFixed(1)}`).join(' ');
+
+    // label every date if few points, else thin them out so text doesn't overlap
+    const labelEvery = n <= 8 ? 1 : Math.ceil(n / 8);
+    const labels = series.map((p,i) => {
+      if (i % labelEvery !== 0 && i !== n-1) return '';
+      return `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${shortDate(p.date)}</text>`;
+    }).join('');
+
+    return `<svg class="trend-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      <line class="zero-line" x1="${padL}" y1="${(padTop+chartH).toFixed(1)}" x2="${W-padR}" y2="${(padTop+chartH).toFixed(1)}"></line>
+      ${bars}
+      <polyline class="req-line" points="${linePts}"></polyline>
+      ${labels}
+    </svg>`;
+  }
+
+  function renderTrendCard(rows, hasFilter){
+    if (state.histDates.length < 2) {
+      return `<div class="card"><h2>Daily Trend vs Target</h2><div class="empty-note">Log at least two dates before a daily trend is possible &mdash; right now there's nothing to diff against.</div></div>`;
+    }
+    const agents = rows.map(r => ({ alias: r.alias, full: r.full, series: seriesFor(r.full, r.tgt) }))
+                        .filter(a => a.series.length > 0);
+    if (agents.length === 0) {
+      return `<div class="card"><h2>Daily Trend vs Target</h2><div class="empty-note">No day-over-day data yet for the agent(s) currently in view.</div></div>`;
+    }
+    return `<div class="card">
+      <h2>Daily Trend vs Target</h2>
+      <div class="sub">${hasFilter ? `Filtered to the ${agents.length} agent(s) selected above.` : `Showing all ${agents.length} agents &mdash; use the filter above to narrow this down.`} Bars are what each agent actually collected that day; the dashed line is the pace that was required that day, recalculated from the prior balance and days left in the cycle.</div>
+      <div class="trend-legend">
+        <span class="lg"><span class="sw" style="background:var(--hit)"></span>Collected &middot; hit</span>
+        <span class="lg"><span class="sw" style="background:var(--miss)"></span>Collected &middot; missed</span>
+        <span class="lg"><span class="ln"></span>Required that day</span>
+      </div>
+      ${agents.map(a => `
+        <div class="trend-agent">
+          <div class="trend-agent-head">
+            <span class="trend-agent-name">${a.alias}</span>
+            <span class="trend-agent-stat">${a.series.filter(p=>p.hit).length} hit / ${a.series.filter(p=>!p.hit).length} missed of ${a.series.length} days</span>
+          </div>
+          ${renderAgentSpark(a.alias, a.series)}
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
   function renderSetupBanner(){
     return `<div class="setup-banner">
       <strong>Firebase isn't configured yet.</strong> Open this file, find <code>firebaseConfig</code> near the top of the &lt;script&gt;, and paste in your project's config values from the Firebase console (Project settings → General → Your apps → SDK setup). Until then, data won't save or sync.
@@ -520,6 +635,8 @@ Milly Nakkazi,5300000
           </table>
           `)}
         </div>
+
+        ${renderTrendCard(rows, hasFilter)}
 
         <div class="card">
           <h2>History</h2>
