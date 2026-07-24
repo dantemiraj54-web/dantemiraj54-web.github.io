@@ -243,6 +243,7 @@ td{padding:6px 14px;vertical-align:middle}
 
 <!-- ===== BOOSTED EMPLOYERS TAB ===== -->
 <div id="tab-boosted" class="tab-pane">
+  <div class="stats" id="boosted-live-stats" style="margin-bottom:1rem"></div>
   <div class="mgmt-section">
     <div class="mgmt-section-title">Load Boosted Employers from File</div>
     <p style="font-size:12px;color:#666;margin-bottom:12px">
@@ -586,6 +587,63 @@ function getTrendIcon(tr) {
 // Fallback to count/avg when no CSV loaded
 // ========================================================
 
+function getBoostedUnpaidStats() {
+  // Live count of boosted employers + clients who haven't paid on a paydate
+  // that has already passed, restricted to boosted employers only.
+  var boosted = getBoostedList();
+  var boostedSet = {};
+  boosted.forEach(function(b){ boostedSet[b.toUpperCase()] = true; });
+
+  var data = (typeof clGetData === 'function') ? clGetData() : null;
+  var todayStr = (window.CL_TODAY_STR) || (typeof CL_TODAY_STR !== 'undefined' ? CL_TODAY_STR : null);
+
+  var clientsUnpaidPastPaydate = 0;
+  var employersAffected = 0;
+  var detail = [];
+
+  if (data && data.emp_data && todayStr) {
+    Object.keys(data.emp_data).forEach(function(key) {
+      if (!boostedSet[key]) return;
+      var e = data.emp_data[key];
+      if (!e.paydate) return;
+      // ISO date strings (YYYY-MM-DD) compare correctly with plain < / >
+      if (e.paydate < todayStr) {
+        var rec0 = (e.rec && e.rec['0']) ? e.rec['0'].length : 0;
+        if (rec0 > 0) {
+          clientsUnpaidPastPaydate += rec0;
+          employersAffected++;
+          detail.push({ employer: e.employer, unpaid: rec0, paydate: e.paydate });
+        }
+      }
+    });
+  }
+
+  detail.sort(function(a,b){ return b.unpaid - a.unpaid; });
+
+  return {
+    boostedTotal: boosted.length,
+    employersAffected: employersAffected,
+    clientsUnpaidPastPaydate: clientsUnpaidPastPaydate,
+    hasClientData: !!(data && data.emp_data && Object.keys(data.emp_data).length),
+    detail: detail
+  };
+}
+
+function renderBoostedLiveStatsBar() {
+  var el = document.getElementById('boosted-live-stats');
+  if (!el) return;
+  var s = getBoostedUnpaidStats();
+  var noteHtml = s.hasClientData
+    ? ''
+    : '<div class=\"stat\" style=\"grid-column:span 2\"><div class=\"stat-label\" style=\"color:#aaa\">&#x26A0; No client data</div><div class=\"stat-val\" style=\"color:#ccc;font-size:12px\">Upload Employee List CSV in Calling List tab</div></div>';
+  el.innerHTML =
+    '<div class=\"stat\"><div class=\"stat-label\">&#x1F525; Employers boosted</div><div class=\"stat-val\" style=\"color:#7A5C00\">' + s.boostedTotal + '</div></div>' +
+    (s.hasClientData
+      ? '<div class=\"stat\"><div class=\"stat-label\">&#x26A0; Boosted, unpaid, paydate passed</div><div class=\"stat-val\" style=\"color:#A32D2D\">' + s.clientsUnpaidPastPaydate.toLocaleString() + '</div></div>' +
+        '<div class=\"stat\"><div class=\"stat-label\">Employers affected</div><div class=\"stat-val\">' + s.employersAffected + '</div></div>'
+      : noteHtml);
+}
+
 function getClientPenetr(empName) {
   // Returns client penetration % or null if no CSV loaded
   if (!window.CL_EMP_TOTALS) return null;
@@ -767,12 +825,19 @@ function render() {
       '<div class="stat"><div class="stat-label">&#x1F534; Delinquent Rec1+</div><div class="stat-val" style="color:#A32D2D">' + cDelinq.toLocaleString() + '</div></div>'
     : '<div class="stat"><div class="stat-label" style="color:#aaa">&#x1F465; Client penetration</div><div class="stat-val" style="color:#ccc;font-size:12px">Upload CSV &#8593;</div></div>';
 
+  var bStats = getBoostedUnpaidStats();
+  var boostedCards =
+    '<div class="stat"><div class="stat-label">&#x1F525; Employers boosted</div><div class="stat-val" style="color:#7A5C00">' + bStats.boostedTotal + '</div></div>' +
+    '<div class="stat"><div class="stat-label">&#x26A0; Boosted, unpaid, paydate passed</div><div class="stat-val" style="color:#A32D2D">' + bStats.clientsUnpaidPastPaydate.toLocaleString() + '</div></div>';
+
   document.getElementById("stats").innerHTML =
     '<div class="stat"><div class="stat-label">Employers shown</div><div class="stat-val">' + filtered.length + '</div></div>' +
     '<div class="stat"><div class="stat-label">Early signals</div><div class="stat-val" style="color:#27500A">' + ec + '</div></div>' +
     '<div class="stat"><div class="stat-label">Weak signals</div><div class="stat-val" style="color:#A32D2D">' + wc + '</div></div>' +
     '<div class="stat"><div class="stat-label">Total payments</div><div class="stat-val">' + tp.toLocaleString() + '</div></div>' +
-    clientStats;
+    clientStats + boostedCards;
+
+  renderBoostedLiveStatsBar();
 
   var groups = {};
   filtered.forEach(function(r){ if (!groups[r[4]]) groups[r[4]]=[]; groups[r[4]].push(r); });
@@ -1550,6 +1615,7 @@ function renderBoostedList() {
       '<button class="del-btn" onclick="'+onclick+'" style="flex-shrink:0;padding:3px 10px;font-size:11px;white-space:nowrap">&#x2715; Remove</button>' +
       '</div>';
   }).join('');
+  renderBoostedLiveStatsBar();
 }
 
 // ========================================================
@@ -2557,6 +2623,8 @@ function clClearStorage() {
   if (lbl) lbl.textContent = 'No file loaded \u2014 showing baseline data';
   clRepopulatePdFilter();
   clRender();
+  if (typeof render === 'function') render();
+  if (typeof renderBoostedLiveStatsBar === 'function') renderBoostedLiveStatsBar();
 }
 
 (function() {
