@@ -304,7 +304,7 @@ td{padding:6px 14px;vertical-align:middle}
           <option value="3">March</option>
           <option value="4">April</option>
           <option value="5">May</option>
-          <option value="6">July</option>
+          <option value="6">June</option>
           <option value="7" selected>July</option>
           <option value="8">August</option>
           <option value="9">September</option>
@@ -335,6 +335,17 @@ td{padding:6px 14px;vertical-align:middle}
   <div class="mgmt-section" style="max-width:520px">
     <div class="mgmt-section-title">Current Cycle Summary</div>
     <div id="cs-summary" style="font-size:13px;color:#444;line-height:2"></div>
+    <div style="margin-top:12px">
+      <button class="btn-add btn-danger" onclick="confirmCloseCycle()">Close Current Cycle &amp; Start Next →</button>
+    </div>
+  </div>
+
+  <!-- -- Archived Cycles ----------------------------------- -->
+  <div class="mgmt-section" style="max-width:520px">
+    <div class="mgmt-section-title">Archived Cycles</div>
+    <div class="archive-list" id="archive-list">
+      <div style="text-align:center;color:#bbb;padding:24px;font-size:13px">No archived cycles yet</div>
+    </div>
   </div>
 
 </div><!-- end tab-cycles -->
@@ -586,6 +597,18 @@ function getTrendIcon(tr) {
 // where clients_paid = clients_due - rec0_remaining
 // Fallback to count/avg when no CSV loaded
 // ========================================================
+
+function refreshAllTabs() {
+  // Master refresh: called after ANY of the three data sources changes
+  // (Calling List CSV, Boosted list, Payments CSV) so every tab reflects
+  // the same live state instead of showing whatever was true when last viewed.
+  try { if (typeof render === 'function') render(); } catch(e) {}
+  try { if (typeof renderInsights === 'function') renderInsights(); } catch(e) {}
+  try { if (typeof renderCompare === 'function') renderCompare(); } catch(e) {}
+  try { if (typeof renderBoostedList === 'function') renderBoostedList(); } catch(e) {}
+  try { if (typeof clRender === 'function') clRender(); } catch(e) {}
+  try { if (typeof renderBoostedLiveStatsBar === 'function') renderBoostedLiveStatsBar(); } catch(e) {}
+}
 
 function getBoostedUnpaidStats() {
   // Live count of boosted employers + clients who haven't paid on a paydate
@@ -1273,8 +1296,7 @@ function loadBoostedFile(input) {
     saveBoostedList(list);
     statusEl.textContent = '\u2713 Loaded ' + list.length + ' employers from ' + escHtml(file.name);
     renderBoostedList();
-    // Refresh compare tab if open
-    if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
+    refreshAllTabs();
     input.value = '';
   };
   reader.readAsText(file);
@@ -1298,9 +1320,8 @@ function _savePaymentsSnapshot(result, statusEl) {
   if (statusEl) statusEl.textContent = '\u2713 Loaded '+Object.keys(result.data).length+' employers, total: '+result.total.toLocaleString();
   renderPaymentsTab();
 
-  // *** CROSS-TAB SYNC: re-render All Employers and Compare ***
-  render();
-  if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
+  // *** CROSS-TAB SYNC: refresh every tab, not just the visible one ***
+  refreshAllTabs();
 }
 
 
@@ -1424,8 +1445,7 @@ function deleteSnapshot(id) {
     DATA.forEach(function(r){ ACTUAL_PMTS[r[0].toUpperCase()] = r[1]; });
   }
   renderPaymentsTab();
-  render(); // sync All Employers tab
-  if (document.getElementById('tab-compare').classList.contains('active')) renderCompare();
+  refreshAllTabs();
 }
 
 function confirmClearPayments() {
@@ -1436,7 +1456,7 @@ function confirmClearPayments() {
     saveSnapshots([]);
     DATA.forEach(function(r){ ACTUAL_PMTS[r[0].toUpperCase()] = r[1]; });
     renderPaymentsTab();
-    render();
+    refreshAllTabs();
   };
   document.getElementById('confirm-modal').className = 'confirm-modal show';
 }
@@ -1554,7 +1574,7 @@ function loadBoostedCSV() {
 
   document.getElementById('boost-paste').value = '';
   statusEl.textContent = '\u2713 Loaded '+list.length+' employers';
-  renderBoostedList();
+  refreshAllTabs();
 }
 
 function addBoostedEmployer() {
@@ -1570,19 +1590,19 @@ function addBoostedEmployer() {
   list.sort();
   saveBoostedList(list);
   document.getElementById('boost-input').value = '';
-  renderBoostedList();
+  refreshAllTabs();
 }
 
 function removeBoostedEmployer(name) {
   var list = getBoostedList().filter(function(b){ return b.toUpperCase() !== name.toUpperCase(); });
   saveBoostedList(list);
-  renderBoostedList();
+  refreshAllTabs();
 }
 
 function confirmClearBoosted() {
   document.getElementById('modal-title').textContent = 'Clear Boosted List?';
   document.getElementById('modal-body').textContent = 'This will remove all employers from the boost list. You can reload from CSV at any time.';
-  document.getElementById('modal-confirm-btn').onclick = function() { closeModal(); saveBoostedList([]); renderBoostedList(); };
+  document.getElementById('modal-confirm-btn').onclick = function() { closeModal(); saveBoostedList([]); refreshAllTabs(); };
   document.getElementById('confirm-modal').className = 'confirm-modal show';
 }
 
@@ -1628,13 +1648,14 @@ function renderCyclesTab() {
   var latest = snaps.length ? snaps[snaps.length-1].total : null;
 
   var aCard = document.getElementById('active-cycle-card');
-  aCard.innerHTML = '<div class="cycle-card"><div class="cycle-card-title">'+active.label+' <span class="cycle-badge cb-active">Active</span></div>' +
+  if (aCard) aCard.innerHTML = '<div class="cycle-card"><div class="cycle-card-title">'+active.label+' <span class="cycle-badge cb-active">Active</span></div>' +
     '<div class="cycle-card-meta">Cycle runs '+active.startLabel+' &ndash; '+active.endLabel+'</div>' +
     (latest !== null ? '<div class="cycle-card-meta" style="margin-top:4px">Current payment total: <strong>'+latest.toLocaleString()+'</strong></div>' : '') +
     '</div>';
 
   var closed = cycles.filter(function(c){ return c.status==='closed'; });
   var archEl = document.getElementById('archive-list');
+  if (!archEl) return;
   if (!closed.length) {
     archEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:24px;font-size:13px">No archived cycles yet</div>';
   } else {
@@ -1864,6 +1885,9 @@ function renderInsights() {
   // Use client penetration for portfolio-level metric when CSV loaded
   var usingClientMetric = !!window.CL_EMP_TOTALS;
   var totalCurr, totalDue, cyclePct;
+  // Always compute the payment-count average so 'Avg Full Cycle' never shows NaN,
+  // regardless of which metric (client-based or count-based) is driving cyclePct.
+  var totalAvg = DATA.reduce(function(s,r){ return s+(r[2]||0); }, 0);
   if (usingClientMetric) {
     totalDue  = Object.values(window.CL_EMP_TOTALS).reduce(function(s,t){ return s+t.total; }, 0);
     totalCurr = Object.values(window.CL_EMP_TOTALS).reduce(function(s,t){ return s+(t.total-t.rec0); }, 0);
@@ -1940,7 +1964,7 @@ function renderInsights() {
     _scard(usingClientMetric ? 'Clients Paid' : 'Total Payments', totalCurr.toLocaleString(), '#111') +
     _scard('Avg Full Cycle', '~'+Math.round(totalAvg).toLocaleString(), '#555') +
     _scard('Always-pay Employers', alwaysTotal.toLocaleString(), '#27500A') +
-    _scard('Always-pay, Zero Jun', alwaysZeroCount.toLocaleString(), alwaysZeroCount>500?'#791F1F':'#7A5C00') +
+    _scard('Always-pay, Zero This Cycle', alwaysZeroCount.toLocaleString(), alwaysZeroCount>500?'#791F1F':'#7A5C00') +
     _scard('Boosted Employers', boostedCount.toLocaleString(), '#555') +
     _scard('Boosted Not Delivering', boostedNoPay.toLocaleString(), boostedNoPay>0?'#791F1F':'#27500A') +
     _scard('Repeat Pmt Flags', repeatCount.toLocaleString(), repeatCount>0?'#7A5C00':'#27500A') +
@@ -2378,8 +2402,7 @@ function clLoadCSV(input) {
     var lbl = document.getElementById('cl-file-label');
     if (lbl) lbl.innerHTML = '<span style="color:#27500A;font-weight:600">&#10003; ' + file.name + '</span> &mdash; ' + rows.length.toLocaleString() + ' rows loaded at ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' &nbsp;<span id="cl-clear-btn" onclick="clClearStorage()" style="cursor:pointer;color:#A32D2D;font-size:11px;border:1px solid #f0b4b4;border-radius:4px;padding:1px 7px;margin-left:6px">&#x2715; Clear</span>';
     clRepopulatePdFilter();
-    clRender();
-    if (typeof render === 'function') render(); // refresh All Employers tab stats
+    refreshAllTabs();
   };
   reader.readAsText(file);
 }
@@ -2622,9 +2645,7 @@ function clClearStorage() {
   var lbl = document.getElementById('cl-file-label');
   if (lbl) lbl.textContent = 'No file loaded \u2014 showing baseline data';
   clRepopulatePdFilter();
-  clRender();
-  if (typeof render === 'function') render();
-  if (typeof renderBoostedLiveStatsBar === 'function') renderBoostedLiveStatsBar();
+  refreshAllTabs();
 }
 
 (function() {
@@ -2742,6 +2763,7 @@ function csApply() {
     setTimeout(function(){ msg.style.display = 'none'; }, 3000);
   }
 
+  refreshAllTabs();
   csUpdateSummary(yr, mo, lastDay, lastFri);
 }
 
