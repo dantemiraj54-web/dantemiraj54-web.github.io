@@ -137,6 +137,9 @@ td{padding:6px 14px;vertical-align:middle}
 .cp-toggle{font-size:11px;color:#555;cursor:pointer;padding:2px 8px;border:1px solid #ddd;border-radius:4px;background:#fff;margin-left:auto}
 .cp-toggle:hover{background:#f0f0f0}
 
+
+/* All summary stat bars consolidated into Insights tab only */
+#stats, #boosted-live-stats, #cl-stats, #pmts-stats { display:none !important; }
 </style>
 </head>
 <body>
@@ -901,8 +904,7 @@ function render() {
 
         "<td class='nr' style='font-weight:600'>" + liveDisplay + "</td>" +
         "<td class='nr' style='color:#999'>" + (r[2]>0?r[2].toFixed(1):"&mdash;") + "</td>" +
-        "<td class='nr'>" + barHtml + "<span style='font-size:12px;margin-left:4px'>" + pctDisp + "</span></td>" +
-        "<td class='nr' style='color:" + penColor + ";font-size:12px'>" + penDisp + repeatHtml + "</td>";
+        "<td class='nr'>" + barHtml + "<span style='font-size:12px;margin-left:4px'>" + pctDisp + "</span>" + repeatHtml + "</td>";
       // Names only in Calling List tab - removed from All Employers
       return tr;
     });
@@ -919,7 +921,7 @@ function render() {
     var wrap = document.createElement("div");
     wrap.className = "tbl-wrap";
     var tbl = document.createElement("table");
-    tbl.innerHTML = "<thead><tr><th>Employer</th><th>Signal / Tier</th><th class='nr' id='col-pmts-hdr'>Paid / Due</th><th class='nr'>Avg cycle</th><th class='nr'>% of avg</th><th class='nr'>Penetration</th></tr></thead>";
+    tbl.innerHTML = "<thead><tr><th>Employer</th><th>Signal / Tier</th><th class='nr' id='col-pmts-hdr'>Paid / Due</th><th class='nr'>Avg cycle</th><th class='nr'>% of avg</th></tr></thead>";
     var tbodyEl = document.createElement("tbody");
     tbody.forEach(function(tr){ tbodyEl.appendChild(tr); });
     tbl.appendChild(tbodyEl);
@@ -2098,10 +2100,10 @@ function renderInsights() {
   var pdBuckets = {};
   DATA.forEach(function(r) {
     var pd = r[4];
-    if (!pdBuckets[pd]) pdBuckets[pd] = { employers:0, avg:0, jun:0, active:0, rows:[] };
+    if (!pdBuckets[pd]) pdBuckets[pd] = { employers:0, avg:0, collected:0, active:0, rows:[] };
     pdBuckets[pd].employers++;
     pdBuckets[pd].avg += r[2];
-    pdBuckets[pd].jun += getLiveCount(r);
+    pdBuckets[pd].collected += getLiveCount(r);
     pdBuckets[pd].active += r[6];
     pdBuckets[pd].rows.push(r);
   });
@@ -2129,7 +2131,7 @@ function renderInsights() {
   var tomorrowLabel = (tomorrowVal <= daysInCycleMonth) ? tomorrowVal + ' ' + curMoShort : (tomorrowVal - daysInCycleMonth) + ' ' + nextMoShort;
 
   // Running cumulative expected vs actual
-  var cumAvg = 0, cumJun = 0;
+  var cumAvg = 0, cumCollected = 0;
   var timelineRows = [];
   sortedPds.forEach(function(pd) {
     var b = pdBuckets[pd];
@@ -2138,10 +2140,10 @@ function renderInsights() {
     var isToday = pdVal === todayVal;
     var isTomorrow = pdVal === tomorrowVal;
     cumAvg += b.avg;
-    cumJun += b.jun;
-    var pct = b.avg > 0 ? Math.round(b.jun / b.avg * 100) : 0;
+    cumCollected += b.collected;
+    var pct = b.avg > 0 ? Math.round(b.collected / b.avg * 100) : 0;
     var status = isPast ? (pct >= 70 ? '\u2713' : pct >= 40 ? '~' : '&#9888;') : (isToday ? '&#128197;' : isTomorrow ? '&#9200;' : '');
-    timelineRows.push({ pd:pd, pdVal:pdVal, b:b, pct:pct, isPast:isPast, isToday:isToday, isTomorrow:isTomorrow, status:status, cumAvg:cumAvg, cumJun:cumJun });
+    timelineRows.push({ pd:pd, pdVal:pdVal, b:b, pct:pct, isPast:isPast, isToday:isToday, isTomorrow:isTomorrow, status:status, cumAvg:cumAvg, cumCollected:cumCollected });
   });
 
   // What we should have collected by today based on all past paydates
@@ -2149,7 +2151,7 @@ function renderInsights() {
   timelineRows.forEach(function(row) {
     if (row.isPast || row.isToday) {
       expectedByToday += row.b.avg;
-      actualByToday += row.b.jun;
+      actualByToday += row.b.collected;
     }
   });
   var vsExpected = expectedByToday > 0 ? Math.round(actualByToday / expectedByToday * 100) : 0;
@@ -2176,7 +2178,7 @@ function renderInsights() {
   // Timeline table
   var tlHtml = '<div class="tbl-wrap"><table><thead><tr>' +
     '<th>Paydate</th><th class="nr">Employers</th><th class="nr">Avg/cycle</th>' +
-    '<th class="nr">Collected</th><th class="nr">% of avg</th><th class="nr">Status</th>' +
+    '<th class="nr">Collected (cycle-to-date)</th><th class="nr">% of avg</th><th class="nr">Status</th>' +
     '</tr></thead><tbody>';
 
   timelineRows.forEach(function(row) {
@@ -2191,7 +2193,7 @@ function renderInsights() {
       '<td>'+label+'</td>' +
       '<td class="nr">'+row.b.employers+'</td>' +
       '<td class="nr" style="color:#999">'+Math.round(row.b.avg)+'</td>' +
-      '<td class="nr" style="font-weight:'+(row.isPast||row.isToday?'600':'400')+'">'+row.b.jun+'</td>' +
+      '<td class="nr" style="font-weight:'+(row.isPast||row.isToday?'600':'400')+'">'+row.b.collected+'</td>' +
       '<td class="nr" style="color:'+pctColor+'">'+( row.isPast||row.isToday ? row.pct+'%' : '\u2014' )+'</td>' +
       '<td class="nr" style="font-size:14px">'+row.status+'</td>' +
       '</tr>';
@@ -2252,7 +2254,7 @@ function renderInsights() {
       return [
         esc(r[0]),
         r[6],
-        item.junCount,
+        item.collectedCount,
         '<strong>'+item.gap+'</strong>',
         '<span style="'+penColor+'">'+item.pen.toFixed(0)+'%</span>',
         r[2].toFixed(1),
