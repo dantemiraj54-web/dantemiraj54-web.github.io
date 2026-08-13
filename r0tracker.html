@@ -264,6 +264,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     viewingArchiveId: null,
     viewingArchiveData: null,
     viewingArchiveLoading: false,
+    editingArchiveTargetId: null,
   };
 
   function loadFilterFromStorage(){
@@ -645,6 +646,23 @@ if (!CONFIG_IS_PLACEHOLDER) {
     render();
   }
 
+  // Edits the target stored on an already-closed cycle. Nothing about closing
+  // a cycle is truly final — the archive record is just data, so a wrong
+  // target at close time is fixable after the fact.
+  async function updateArchivedCycleTarget(cycleId, newTarget){
+    if (!db) return;
+    const meta = state.archivedCycles.find(c => c.id === cycleId);
+    if (!meta) return;
+    const overrides = meta.overrides || {};
+    let teamTarget = 0;
+    for (const r of ROSTER) teamTarget += (overrides[r.full] !== undefined ? overrides[r.full] : newTarget);
+    await db.ref('archive_meta/'+cycleId).update({ target: newTarget, teamTarget });
+    await loadArchivedCyclesMeta();
+    if (state.viewingArchiveId === cycleId) {
+      await viewArchivedCycle(cycleId);
+    }
+  }
+
   function renderCycleManagementCard(){
     if (!state.isAdmin) return '';
     const suggested = suggestNextCycleEnd(state.cycleEnd);
@@ -703,12 +721,24 @@ if (!CONFIG_IS_PLACEHOLDER) {
       ${state.archivedCycles.map(c => {
         const pct = c.teamTarget ? Math.round((c.teamTotal/c.teamTarget)*100) : null;
         const expanded = state.viewingArchiveId === c.id;
+        const editingTarget = state.editingArchiveTargetId === c.id;
         return `<div class="trend-agent">
           <div class="trend-agent-head">
             <span class="trend-agent-name">${c.label}</span>
-            <span class="trend-agent-stat">${c.startDate} &rarr; ${c.endDate} &middot; ${fmt(c.teamTotal)} / ${fmt(c.teamTarget)} UGX${pct!==null ? ' ('+pct+'%)' : ''} &middot; ${c.daysLogged} day(s) logged</span>
+            <span class="trend-agent-stat">${c.startDate} &rarr; ${c.endDate} &middot; ${fmt(c.teamTotal)} / ${fmt(c.teamTarget)} UGX${pct!==null ? ' ('+pct+'%)' : ''} &middot; ${c.daysLogged} day(s) logged &middot; target ${fmt(c.target)}</span>
           </div>
           <button class="btn btn-ghost" data-view-archive="${c.id}" style="margin-top:6px;">${expanded ? 'Hide agent totals' : 'View agent totals'}</button>
+          ${state.isAdmin ? `<button class="btn btn-ghost" data-edit-archive-target="${c.id}" style="margin-top:6px;margin-left:8px;">${editingTarget ? 'Cancel edit' : 'Edit target'}</button>` : ''}
+          ${editingTarget ? `
+            <div class="controls-row row-gap">
+              <div class="field">
+                <label for="archiveTargetInput_${c.id}">Corrected target per agent (UGX)</label>
+                <input type="number" id="archiveTargetInput_${c.id}" value="${c.target}" step="100000" style="width:220px;">
+              </div>
+              <button class="btn btn-primary" data-save-archive-target="${c.id}">Save</button>
+            </div>
+            <div class="footnote">This only fixes the target and % achieved recorded on this closed cycle &mdash; it does not touch the live board or any current cycle.</div>
+          ` : ''}
           ${expanded ? renderArchiveDetail() : ''}
         </div>`;
       }).join('')}
@@ -1078,6 +1108,26 @@ Milly Nakkazi,5300000
         } else {
           await viewArchivedCycle(id);
         }
+      });
+    });
+    document.querySelectorAll('[data-edit-archive-target]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.editArchiveTarget;
+        state.editingArchiveTargetId = state.editingArchiveTargetId === id ? null : id;
+        render();
+      });
+    });
+    document.querySelectorAll('[data-save-archive-target]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.saveArchiveTarget;
+        const input = document.getElementById('archiveTargetInput_'+id);
+        const newTarget = Number(input.value);
+        if (!newTarget || newTarget <= 0) return;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        await updateArchivedCycleTarget(id, newTarget);
+        state.editingArchiveTargetId = null;
+        render();
       });
     });
   }
