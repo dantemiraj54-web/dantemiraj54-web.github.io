@@ -259,6 +259,11 @@ if (!CONFIG_IS_PLACEHOLDER) {
     loginError: "",
     selectedAgents: [],   // empty = show all
     filterOpen: false,
+    cycleMgmtOpen: false,
+    archivedCycles: [],
+    viewingArchiveId: null,
+    viewingArchiveData: null,
+    viewingArchiveLoading: false,
   };
 
   function loadFilterFromStorage(){
@@ -341,6 +346,11 @@ if (!CONFIG_IS_PLACEHOLDER) {
 
   async function seedBaselineIfEmpty(){
     if (!db) return;
+    // Once any cycle has ever been closed, never auto-reseed the original
+    // hardcoded baseline again — otherwise clearing 'logs' on a cycle close
+    // would make this look "empty" and silently reinject old numbers.
+    const archivedSnap = await db.ref('archive_meta').once('value');
+    if (archivedSnap.exists()) return;
     const snap = await db.ref('logs/'+BASELINE_DATE).once('value');
     if (snap.exists()) return;
     await db.ref('logs/'+BASELINE_DATE).set(encodeLogObj(BASELINE_DATA));
@@ -551,6 +561,160 @@ if (!CONFIG_IS_PLACEHOLDER) {
     </div>`;
   }
 
+  function suggestNextCycleEnd(currentEndStr){
+    // Your billing cycle runs the 11th to the 10th, so default the next
+    // cycle's end to the 10th of the following month — admin can still edit it.
+    const d = new Date(currentEndStr+"T00:00:00");
+    d.setMonth(d.getMonth()+1);
+    d.setDate(10);
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0');
+  }
+
+  // Archives every logged date of the current cycle under a permanent record,
+  // then clears the live 'logs' node so the board is empty for the next cycle.
+  // Nothing is deleted — archived data stays in Firebase indefinitely.
+  async function closeCycleAndStartNew(newEnd, label){
+    if (!db) return { ok:false, msg:"Firebase isn't configured." };
+    if (!newEnd) return { ok:false, msg:"Pick a new cycle end date first." };
+    const rawSnap = await db.ref('logs').once('value');
+    const rawLogs = rawSnap.exists() ? rawSnap.val() : {};
+    const histDates = Object.keys(rawLogs).sort();
+    if (histDates.length === 0) return { ok:false, msg:"Nothing logged yet in this cycle — there's nothing to close." };
+
+    const latestDate = histDates[histDates.length-1];
+    const latestDecoded = decodeLogObj(rawLogs[latestDate]);
+    let teamTotal = 0, teamTarget = 0;
+    for (const r of ROSTER) {
+      const v = latestDecoded[r.full];
+      if (v !== undefined && v !== null) teamTotal += v;
+      teamTarget += targetFor(r.full);
+    }
+
+    const cycleId = state.cycleEnd + '_' + Date.now();
+    const meta = {
+      label: label || ('Cycle ending ' + state.cycleEnd),
+      startDate: histDates[0],
+      endDate: state.cycleEnd,
+      closedAt: Date.now(),
+      target: state.target,
+      overrides: state.overrides,
+      teamTotal, teamTarget,
+      daysLogged: histDates.length,
+    };
+
+    await db.ref('archive_meta/'+cycleId).set(meta);
+    await db.ref('archive_logs/'+cycleId).set(rawLogs);
+    await db.ref('logs').remove();
+    await db.ref('settings').update({ cycleEnd: newEnd });
+
+    state.logs = {};
+    state.histDates = [];
+    state.cycleEnd = newEnd;
+    state.date = todayStr();
+
+    return { ok:true, msg:`Archived as "${meta.label}". The live board is now clear for the cycle ending ${newEnd}.` };
+  }
+
+  async function loadArchivedCyclesMeta(){
+    if (!db) { state.archivedCycles = []; return; }
+    const snap = await db.ref('archive_meta').once('value');
+    if (!snap.exists()) { state.archivedCycles = []; return; }
+    const raw = snap.val();
+    state.archivedCycles = Object.keys(raw).map(id => ({ id, ...raw[id] })).sort((a,b) => b.closedAt - a.closedAt);
+  }
+
+  async function viewArchivedCycle(cycleId){
+    state.viewingArchiveId = cycleId;
+    state.viewingArchiveLoading = true;
+    state.viewingArchiveData = null;
+    render();
+    const snap = await db.ref('archive_logs/'+cycleId).once('value');
+    const raw = snap.exists() ? snap.val() : {};
+    const dates = Object.keys(raw).sort();
+    const lastDate = dates[dates.length-1];
+    const decoded = lastDate ? decodeLogObj(raw[lastDate]) : {};
+    const meta = state.archivedCycles.find(c => c.id === cycleId);
+    const overrides = (meta && meta.overrides) || {};
+    state.viewingArchiveData = ROSTER.map(r => {
+      const total = decoded[r.full] !== undefined ? decoded[r.full] : null;
+      const target = overrides[r.full] !== undefined ? overrides[r.full] : (meta ? meta.target : TARGET_DEFAULT);
+      const hit = total !== null ? total >= target : null;
+      return { alias: r.alias, full: r.full, total, target, hit };
+    });
+    state.viewingArchiveLoading = false;
+    render();
+  }
+
+  function renderCycleManagementCard(){
+    if (!state.isAdmin) return '';
+    const suggested = suggestNextCycleEnd(state.cycleEnd);
+    return `<div class="card">
+      <h2>Cycle Management</h2>
+      <div class="sub">Closing a cycle archives every logged date under a permanent record (nothing is deleted), then clears the live board so the next cycle starts clean. Per-agent target overrides carry forward by default &mdash; review them after closing in case any were specific to the cycle that just ended.</div>
+      ${!state.cycleMgmtOpen ? `
+        <button class="btn btn-ghost" id="openCloseCycleBtn" ${state.histDates.length===0?'disabled':''}>Close Cycle &amp; Start New</button>
+        ${state.histDates.length===0 ? `<div class="footnote">Nothing logged yet in this cycle, so there's nothing to close.</div>` : ''}
+      ` : `
+        <div class="controls-row">
+          <div class="field">
+            <label for="newCycleLabelInput">Archive label</label>
+            <input type="text" id="newCycleLabelInput" value="Cycle ending ${state.cycleEnd}" style="width:260px;">
+          </div>
+          <div class="field">
+            <label for="newCycleEndInput">New cycle ends</label>
+            <input type="date" id="newCycleEndInput" value="${suggested}">
+          </div>
+        </div>
+        <div class="field row-gap">
+          <label for="closeConfirmInput">Type CLOSE to confirm</label>
+          <input type="text" id="closeConfirmInput" placeholder="CLOSE" style="width:160px;">
+        </div>
+        <div class="row-gap">
+          <button class="btn btn-primary" id="confirmCloseCycleBtn">Confirm: Archive &amp; Start New Cycle</button>
+          <button class="btn btn-ghost" id="cancelCloseCycleBtn" style="margin-left:8px;">Cancel</button>
+        </div>
+      `}
+      <div class="status-msg" id="cycleStatusMsg"></div>
+    </div>`;
+  }
+
+  function renderArchiveDetail(){
+    if (state.viewingArchiveLoading) return `<div class="empty-note">Loading&hellip;</div>`;
+    if (!state.viewingArchiveData) return '';
+    return `<table class="row-gap">
+      <thead><tr><th class="left">Agent</th><th>Final total</th><th>Target</th><th>Status</th></tr></thead>
+      <tbody>
+        ${state.viewingArchiveData.map(r => `<tr class="${r.hit===false?'miss-row':''}">
+          <td class="left agent-name">${r.alias}</td>
+          <td class="num-cell">${r.total!==null?fmt(r.total):'&mdash;'}</td>
+          <td class="num-cell">${fmt(r.target)}</td>
+          <td>${r.total===null?'<span class="badge base">No data</span>':(r.hit?'<span class="badge hit">&#10003; Hit</span>':'<span class="badge miss">&#10007; Missed</span>')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  function renderPastCyclesCard(){
+    if (!state.archivedCycles || state.archivedCycles.length === 0) {
+      return `<div class="card"><h2>Past Cycles</h2><div class="empty-note">No cycles closed yet.</div></div>`;
+    }
+    return `<div class="card">
+      <h2>Past Cycles</h2>
+      ${state.archivedCycles.map(c => {
+        const pct = c.teamTarget ? Math.round((c.teamTotal/c.teamTarget)*100) : null;
+        const expanded = state.viewingArchiveId === c.id;
+        return `<div class="trend-agent">
+          <div class="trend-agent-head">
+            <span class="trend-agent-name">${c.label}</span>
+            <span class="trend-agent-stat">${c.startDate} &rarr; ${c.endDate} &middot; ${fmt(c.teamTotal)} / ${fmt(c.teamTarget)} UGX${pct!==null ? ' ('+pct+'%)' : ''} &middot; ${c.daysLogged} day(s) logged</span>
+          </div>
+          <button class="btn btn-ghost" data-view-archive="${c.id}" style="margin-top:6px;">${expanded ? 'Hide agent totals' : 'View agent totals'}</button>
+          ${expanded ? renderArchiveDetail() : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   function renderSetupBanner(){
     return `<div class="setup-banner">
       <strong>Firebase isn't configured yet.</strong> Open this file, find <code>firebaseConfig</code> near the top of the &lt;script&gt;, and paste in your project's config values from the Firebase console (Project settings → General → Your apps → SDK setup). Until then, data won't save or sync.
@@ -729,6 +893,9 @@ Milly Nakkazi,5300000
           </div>
           <div class="footnote">Every date logged here is saved to Firebase and shared live &mdash; anyone with this page's URL sees the same data, updated in real time. "Required today" is recalculated each day from the prior day's balance and the days left to the cycle end date above.</div>
         </div>
+
+        ${renderCycleManagementCard()}
+        ${renderPastCyclesCard()}
       </div>
     `;
 
@@ -865,6 +1032,54 @@ Milly Nakkazi,5300000
         render();
       });
     });
+
+    const openCloseCycleBtn = document.getElementById('openCloseCycleBtn');
+    if (openCloseCycleBtn) openCloseCycleBtn.addEventListener('click', () => {
+      state.cycleMgmtOpen = true;
+      render();
+    });
+    const cancelCloseCycleBtn = document.getElementById('cancelCloseCycleBtn');
+    if (cancelCloseCycleBtn) cancelCloseCycleBtn.addEventListener('click', () => {
+      state.cycleMgmtOpen = false;
+      render();
+    });
+    const confirmCloseCycleBtn = document.getElementById('confirmCloseCycleBtn');
+    if (confirmCloseCycleBtn) confirmCloseCycleBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('cycleStatusMsg');
+      const confirmText = document.getElementById('closeConfirmInput').value.trim();
+      if (confirmText !== 'CLOSE') {
+        statusEl.textContent = "Type CLOSE exactly (all caps) to confirm — this step exists so a misclick can't wipe the live board.";
+        statusEl.className = "status-msg show status-warn";
+        return;
+      }
+      const newEnd = document.getElementById('newCycleEndInput').value;
+      const label = document.getElementById('newCycleLabelInput').value.trim();
+      confirmCloseCycleBtn.disabled = true;
+      confirmCloseCycleBtn.textContent = 'Archiving…';
+      const result = await closeCycleAndStartNew(newEnd, label);
+      if (result.ok) {
+        state.cycleMgmtOpen = false;
+        await loadArchivedCyclesMeta();
+        render();
+      } else {
+        statusEl.textContent = result.msg;
+        statusEl.className = "status-msg show status-warn";
+        confirmCloseCycleBtn.disabled = false;
+        confirmCloseCycleBtn.textContent = 'Confirm: Archive & Start New Cycle';
+      }
+    });
+    document.querySelectorAll('[data-view-archive]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.viewArchive;
+        if (state.viewingArchiveId === id) {
+          state.viewingArchiveId = null;
+          state.viewingArchiveData = null;
+          render();
+        } else {
+          await viewArchivedCycle(id);
+        }
+      });
+    });
   }
 
   async function init(){
@@ -881,6 +1096,7 @@ Milly Nakkazi,5300000
       await refreshHistoryList();
       await loadLog(state.date);
       if (!state.logs[BASELINE_DATE]) await loadLog(BASELINE_DATE);
+      await loadArchivedCyclesMeta();
 
       // live sync: re-render whenever any log changes, so everyone sees updates instantly
       db.ref('logs').on('value', async (snap) => {
