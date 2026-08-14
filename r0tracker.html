@@ -332,50 +332,81 @@ if (!CONFIG_IS_PLACEHOLDER) {
 
   async function loadSettings(){
     if (!db) return;
-    const snap = await db.ref('settings').once('value');
-    if (snap.exists()) {
-      const s = snap.val();
-      state.target = s.target ?? TARGET_DEFAULT;
-      state.cycleEnd = s.cycleEnd ?? CYCLE_END_DEFAULT;
-      state.overrides = s.overrides || {};
+    try {
+      const snap = await db.ref('settings').once('value');
+      if (snap.exists()) {
+        const s = snap.val();
+        state.target = s.target ?? TARGET_DEFAULT;
+        state.cycleEnd = s.cycleEnd ?? CYCLE_END_DEFAULT;
+        state.overrides = s.overrides || {};
+      }
+    } catch (err) {
+      console.error('loadSettings failed:', err);
+      state.lastDbError = 'Could not load settings from Firebase: ' + (err && err.message ? err.message : err);
     }
   }
   async function saveSettings(){
     if (!db) return;
-    await db.ref('settings').set({ target: state.target, cycleEnd: state.cycleEnd, overrides: state.overrides });
+    try {
+      await db.ref('settings').set({ target: state.target, cycleEnd: state.cycleEnd, overrides: state.overrides });
+    } catch (err) {
+      console.error('saveSettings failed:', err);
+      state.lastDbError = 'Could not save settings: ' + (err && err.message ? err.message : err);
+    }
   }
 
   async function seedBaselineIfEmpty(){
     if (!db) return;
-    // Once any cycle has ever been closed, never auto-reseed the original
-    // hardcoded baseline again — otherwise clearing 'logs' on a cycle close
-    // would make this look "empty" and silently reinject old numbers.
-    const archivedSnap = await db.ref('archive_meta').once('value');
-    if (archivedSnap.exists()) return;
-    const snap = await db.ref('logs/'+BASELINE_DATE).once('value');
-    if (snap.exists()) return;
-    await db.ref('logs/'+BASELINE_DATE).set(encodeLogObj(BASELINE_DATA));
+    try {
+      // Once any cycle has ever been closed, never auto-reseed the original
+      // hardcoded baseline again — otherwise clearing 'logs' on a cycle close
+      // would make this look "empty" and silently reinject old numbers.
+      const archivedSnap = await db.ref('archive_meta').once('value');
+      if (archivedSnap.exists()) return;
+      const snap = await db.ref('logs/'+BASELINE_DATE).once('value');
+      if (snap.exists()) return;
+      await db.ref('logs/'+BASELINE_DATE).set(encodeLogObj(BASELINE_DATA));
+    } catch (err) {
+      console.error('seedBaselineIfEmpty failed:', err);
+    }
   }
 
   async function loadLog(date){
     if (!db) return null;
-    const snap = await db.ref('logs/'+date).once('value');
-    const decoded = snap.exists() ? decodeLogObj(snap.val()) : null;
-    if (decoded) state.logs[date] = decoded;
-    return decoded;
+    try {
+      const snap = await db.ref('logs/'+date).once('value');
+      const decoded = snap.exists() ? decodeLogObj(snap.val()) : null;
+      if (decoded) state.logs[date] = decoded;
+      return decoded;
+    } catch (err) {
+      console.error('loadLog failed:', err);
+      state.lastDbError = 'Could not load ' + date + ' from Firebase: ' + (err && err.message ? err.message : err);
+      return null;
+    }
   }
   async function saveLog(date, collectedByFull){
     if (!db) return;
-    const encoded = encodeLogObj(collectedByFull);
-    if (Object.keys(encoded).length > 0) {
-      await db.ref('logs/'+date).update(encoded);
+    try {
+      const encoded = encodeLogObj(collectedByFull);
+      if (Object.keys(encoded).length > 0) {
+        await db.ref('logs/'+date).update(encoded);
+      }
+      state.logs[date] = { ...(state.logs[date] || {}), ...collectedByFull };
+    } catch (err) {
+      console.error('saveLog failed:', err);
+      state.lastDbError = 'Could not save this CSV to Firebase: ' + (err && err.message ? err.message : err);
+      throw err; // let the Apply button's own handler show this in its status line too
     }
-    state.logs[date] = { ...(state.logs[date] || {}), ...collectedByFull };
   }
   async function clearLog(date){
     if (!db) return;
-    await db.ref('logs/'+date).remove();
-    state.logs[date] = {};
+    try {
+      await db.ref('logs/'+date).remove();
+      state.logs[date] = {};
+    } catch (err) {
+      console.error('clearLog failed:', err);
+      state.lastDbError = 'Could not clear ' + date + ': ' + (err && err.message ? err.message : err);
+    }
   }
   async function refreshHistoryList(){
     if (!db) { state.histDates = []; return; }
@@ -963,8 +994,8 @@ Milly Nakkazi,5300000
     const dateInputEl = document.getElementById('dateInput');
     if (dateInputEl) dateInputEl.addEventListener('change', async (e) => {
       state.date = e.target.value;
-      if (!state.logs[state.date]) await loadLog(state.date);
-      render();
+      render(); // reflect the picked date (Apply button label etc.) immediately, don't wait on the network
+      if (!state.logs[state.date]) { await loadLog(state.date); render(); }
     });
     const targetInputEl = document.getElementById('targetInput');
     if (targetInputEl) targetInputEl.addEventListener('change', async (e) => {
@@ -998,11 +1029,16 @@ Milly Nakkazi,5300000
       const parsed = parseCsv(text);
       const collected = matchRoster(parsed);
       const matchedCount = Object.values(collected).filter(v => v !== null).length;
-      await saveLog(state.date, collected);
-      await refreshHistoryList();
-      statusEl.textContent = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.` +
-        (matchedCount < ROSTER.length ? " Unmatched agents show as no data." : "");
-      statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
+      try {
+        await saveLog(state.date, collected);
+        await refreshHistoryList();
+        statusEl.textContent = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.` +
+          (matchedCount < ROSTER.length ? " Unmatched agents show as no data." : "");
+        statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
+      } catch (err) {
+        statusEl.textContent = "Firebase rejected this save: " + (err && err.message ? err.message : err) + " — check your database rules or connection, nothing was saved.";
+        statusEl.className = "status-msg show status-warn";
+      }
       render();
     });
     const clearBtnEl = document.getElementById('clearBtn');
@@ -1016,8 +1052,8 @@ Milly Nakkazi,5300000
       histSelect.addEventListener('change', async (e) => {
         if (!e.target.value) return;
         state.date = e.target.value;
-        if (!state.logs[state.date]) await loadLog(state.date);
         render();
+        if (!state.logs[state.date]) { await loadLog(state.date); render(); }
       });
     }
 
