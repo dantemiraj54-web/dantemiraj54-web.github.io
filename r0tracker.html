@@ -284,10 +284,13 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
     const out = {};
     for (const line of lines) {
-      const idx = line.lastIndexOf(',');
-      if (idx === -1) continue;
-      let name = line.slice(0, idx).trim();
-      let val = line.slice(idx+1).trim().replace(/[^0-9.\-]/g,'');
+      // Match the trailing numeric field explicitly instead of splitting on the
+      // last comma — a value like "4,800,000" has commas INSIDE it, and the old
+      // lastIndexOf(',') approach would land inside the number and mis-split.
+      const m = line.match(/^(.*?),\s*"?[^0-9\-]*(-?[\d,]+(?:\.\d+)?)"?\s*$/);
+      if (!m) continue;
+      let name = m[1].trim();
+      let val = m[2].replace(/,/g,'');
       if (/^(consultant|agent|name)$/i.test(name)) continue;
       if (val === '' || isNaN(Number(val))) continue;
       out[norm(name)] = Number(val);
@@ -297,17 +300,21 @@ if (!CONFIG_IS_PLACEHOLDER) {
 
   function matchRoster(parsedMap){
     const collected = {};
+    const usedKeys = new Set();
     for (const r of ROSTER) {
       const key = norm(r.full);
-      if (parsedMap[key] !== undefined) { collected[r.full] = parsedMap[key]; continue; }
+      if (parsedMap[key] !== undefined) { collected[r.full] = parsedMap[key]; usedKeys.add(key); continue; }
       const aliasKey = norm(r.alias);
-      let found = undefined;
+      let found = undefined, foundKey = null;
       for (const pk in parsedMap) {
-        if (pk.includes(aliasKey) || aliasKey.includes(pk)) { found = parsedMap[pk]; break; }
+        if (pk.includes(aliasKey) || aliasKey.includes(pk)) { found = parsedMap[pk]; foundKey = pk; break; }
       }
       collected[r.full] = found !== undefined ? found : null;
+      if (foundKey) usedKeys.add(foundKey);
     }
-    return collected;
+    const unmatchedAgents = ROSTER.filter(r => collected[r.full] === null).map(r => r.alias);
+    const unmatchedCsvNames = Object.keys(parsedMap).filter(k => !usedKeys.has(k));
+    return { collected, unmatchedAgents, unmatchedCsvNames };
   }
 
   function decodeLogObj(obj){
@@ -1027,13 +1034,23 @@ Milly Nakkazi,5300000
         statusEl.className = "status-msg show status-warn"; return;
       }
       const parsed = parseCsv(text);
-      const collected = matchRoster(parsed);
+      const { collected, unmatchedAgents, unmatchedCsvNames } = matchRoster(parsed);
       const matchedCount = Object.values(collected).filter(v => v !== null).length;
+      if (matchedCount === 0) {
+        statusEl.textContent = "0 agents matched — nothing was saved. Check your CSV's name spelling/format against the roster." +
+          (unmatchedCsvNames.length > 0 ? ` Rows I saw: ${unmatchedCsvNames.slice(0,6).join(', ')}${unmatchedCsvNames.length>6?'…':''}.` : ' No valid rows were found in the pasted text at all — check the format.');
+        statusEl.className = "status-msg show status-warn";
+        render();
+        return;
+      }
       try {
         await saveLog(state.date, collected);
         await refreshHistoryList();
-        statusEl.textContent = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.` +
-          (matchedCount < ROSTER.length ? " Unmatched agents show as no data." : "");
+        let msg = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.`;
+        if (matchedCount < ROSTER.length) {
+          msg += ` Unmatched agents (no data): ${unmatchedAgents.slice(0,6).join(', ')}${unmatchedAgents.length>6?` +${unmatchedAgents.length-6} more`:''}.`;
+        }
+        statusEl.textContent = msg;
         statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
       } catch (err) {
         statusEl.textContent = "Firebase rejected this save: " + (err && err.message ? err.message : err) + " — check your database rules or connection, nothing was saved.";
