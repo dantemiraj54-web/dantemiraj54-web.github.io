@@ -320,6 +320,9 @@ if (!CONFIG_IS_PLACEHOLDER) {
     viewingArchiveLoading: false,
     editingArchiveTargetId: null,
     roster: [],
+    applyStatusMsg: null,   // { text, cls } — survives render() unlike a raw DOM write
+    cycleStatusMsg: null,
+    rosterStatusMsg: null,
   };
 
   function loadFilterFromStorage(){
@@ -785,7 +788,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
         </div>
         <button class="btn btn-primary" id="addAgentBtn">Add Agent</button>
       </div>
-      <div class="status-msg" id="rosterStatusMsg"></div>
+      <div class="status-msg ${state.rosterStatusMsg ? 'show '+state.rosterStatusMsg.cls : ''}" id="rosterStatusMsg">${state.rosterStatusMsg ? state.rosterStatusMsg.text : ''}</div>
     </div>`;
   }
 
@@ -818,7 +821,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
           <button class="btn btn-ghost" id="cancelCloseCycleBtn" style="margin-left:8px;">Cancel</button>
         </div>
       `}
-      <div class="status-msg" id="cycleStatusMsg"></div>
+      <div class="status-msg ${state.cycleStatusMsg ? 'show '+state.cycleStatusMsg.cls : ''}" id="cycleStatusMsg">${state.cycleStatusMsg ? state.cycleStatusMsg.text : ''}</div>
     </div>`;
   }
 
@@ -974,7 +977,7 @@ Milly Nakkazi,5300000
             <button class="btn btn-primary" id="applyBtn">Apply to ${state.date}</button>
             <button class="btn btn-ghost" id="clearBtn" style="margin-left:8px;">Clear this date</button>
           </div>
-          <div class="status-msg" id="statusMsg"></div>
+          <div class="status-msg ${state.applyStatusMsg ? 'show '+state.applyStatusMsg.cls : ''}" id="statusMsg">${state.applyStatusMsg ? state.applyStatusMsg.text : ''}</div>
         </div>
         ` : `
         <div class="card">
@@ -1113,22 +1116,20 @@ Milly Nakkazi,5300000
     const applyBtnEl = document.getElementById('applyBtn');
     if (applyBtnEl) applyBtnEl.addEventListener('click', async () => {
       const text = document.getElementById('pasteArea').value;
-      const statusEl = document.getElementById('statusMsg');
       if (!db) {
-        statusEl.textContent = "Firebase isn't configured yet — see the yellow banner above.";
-        statusEl.className = "status-msg show status-warn"; return;
+        state.applyStatusMsg = { text: "Firebase isn't configured yet — see the yellow banner above.", cls: "status-warn" };
+        render(); return;
       }
       if (!text.trim()) {
-        statusEl.textContent = "Paste or upload a CSV first.";
-        statusEl.className = "status-msg show status-warn"; return;
+        state.applyStatusMsg = { text: "Paste or upload a CSV first.", cls: "status-warn" };
+        render(); return;
       }
       const parsed = parseCsv(text);
       const { collected, unmatchedAgents, unmatchedCsvNames } = matchRoster(parsed);
       const matchedCount = Object.values(collected).filter(v => v !== null).length;
       if (matchedCount === 0) {
-        statusEl.textContent = "0 agents matched — nothing was saved. Check your CSV's name spelling/format against the roster." +
-          (unmatchedCsvNames.length > 0 ? ` Rows I saw: ${unmatchedCsvNames.slice(0,6).join(', ')}${unmatchedCsvNames.length>6?'…':''}.` : ' No valid rows were found in the pasted text at all — check the format.');
-        statusEl.className = "status-msg show status-warn";
+        state.applyStatusMsg = { text: "0 agents matched — nothing was saved. Check your CSV's name spelling/format against the roster." +
+          (unmatchedCsvNames.length > 0 ? ` Rows I saw: ${unmatchedCsvNames.slice(0,6).join(', ')}${unmatchedCsvNames.length>6?'…':''}.` : ' No valid rows were found in the pasted text at all — check the format.'), cls: "status-warn" };
         render();
         return;
       }
@@ -1139,11 +1140,9 @@ Milly Nakkazi,5300000
         if (matchedCount < state.roster.length) {
           msg += ` Unmatched agents (no data): ${unmatchedAgents.slice(0,6).join(', ')}${unmatchedAgents.length>6?` +${unmatchedAgents.length-6} more`:''}.`;
         }
-        statusEl.textContent = msg;
-        statusEl.className = "status-msg show " + (matchedCount === state.roster.length ? "status-ok" : "status-warn");
+        state.applyStatusMsg = { text: msg, cls: matchedCount === state.roster.length ? "status-ok" : "status-warn" };
       } catch (err) {
-        statusEl.textContent = "Firebase rejected this save: " + (err && err.message ? err.message : err) + " — check your database rules or connection, nothing was saved.";
-        statusEl.className = "status-msg show status-warn";
+        state.applyStatusMsg = { text: "Firebase rejected this save: " + (err && err.message ? err.message : err) + " — check your database rules or connection, nothing was saved.", cls: "status-warn" };
       }
       render();
     });
@@ -1207,18 +1206,13 @@ Milly Nakkazi,5300000
 
     const addAgentBtn = document.getElementById('addAgentBtn');
     if (addAgentBtn) addAgentBtn.addEventListener('click', async () => {
-      const statusEl = document.getElementById('rosterStatusMsg');
       const alias = document.getElementById('newAgentAlias').value;
       const full = document.getElementById('newAgentFull').value;
       addAgentBtn.disabled = true;
       const result = await addRosterAgent(alias, full);
       addAgentBtn.disabled = false;
-      if (result.ok) {
-        render();
-      } else {
-        statusEl.textContent = result.msg;
-        statusEl.className = "status-msg show status-warn";
-      }
+      state.rosterStatusMsg = { text: result.msg, cls: result.ok ? "status-ok" : "status-warn" };
+      render();
     });
     document.querySelectorAll('[data-remove-roster]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -1227,14 +1221,8 @@ Milly Nakkazi,5300000
         btn.disabled = true;
         btn.textContent = 'Removing…';
         const result = await removeRosterAgent(full);
-        if (!result.ok) {
-          const statusEl = document.getElementById('rosterStatusMsg');
-          if (statusEl) { statusEl.textContent = result.msg; statusEl.className = "status-msg show status-warn"; }
-          btn.disabled = false;
-          btn.textContent = 'Remove';
-        } else {
-          render();
-        }
+        state.rosterStatusMsg = { text: result.msg, cls: result.ok ? "status-ok" : "status-warn" };
+        render();
       });
     });
     const openCloseCycleBtn = document.getElementById('openCloseCycleBtn');
@@ -1249,11 +1237,10 @@ Milly Nakkazi,5300000
     });
     const confirmCloseCycleBtn = document.getElementById('confirmCloseCycleBtn');
     if (confirmCloseCycleBtn) confirmCloseCycleBtn.addEventListener('click', async () => {
-      const statusEl = document.getElementById('cycleStatusMsg');
       const confirmText = document.getElementById('closeConfirmInput').value.trim();
       if (confirmText !== 'CLOSE') {
-        statusEl.textContent = "Type CLOSE exactly (all caps) to confirm — this step exists so a misclick can't wipe the live board.";
-        statusEl.className = "status-msg show status-warn";
+        state.cycleStatusMsg = { text: "Type CLOSE exactly (all caps) to confirm — this step exists so a misclick can't wipe the live board.", cls: "status-warn" };
+        render();
         return;
       }
       const newEnd = document.getElementById('newCycleEndInput').value;
@@ -1261,16 +1248,12 @@ Milly Nakkazi,5300000
       confirmCloseCycleBtn.disabled = true;
       confirmCloseCycleBtn.textContent = 'Archiving…';
       const result = await closeCycleAndStartNew(newEnd, label);
+      state.cycleStatusMsg = { text: result.msg, cls: result.ok ? "status-ok" : "status-warn" };
       if (result.ok) {
         state.cycleMgmtOpen = false;
         await loadArchivedCyclesMeta();
-        render();
-      } else {
-        statusEl.textContent = result.msg;
-        statusEl.className = "status-msg show status-warn";
-        confirmCloseCycleBtn.disabled = false;
-        confirmCloseCycleBtn.textContent = 'Confirm: Archive & Start New Cycle';
       }
+      render();
     });
     document.querySelectorAll('[data-view-archive]').forEach(btn => {
       btn.addEventListener('click', async () => {
