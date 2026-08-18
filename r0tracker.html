@@ -184,7 +184,10 @@ if (!CONFIG_IS_PLACEHOLDER) {
 }
 
 (function(){
-  const ROSTER = [
+  // One-time seed only — used to populate Firebase's 'roster' node the first time
+  // this loads. After that, the roster lives in Firebase and is admin-editable;
+  // this array is never read from again.
+  const ROSTER_SEED = [
     { alias: "Anitah",          full: "Anitah Nalugwa" },
     { alias: "Elizabeth A",     full: "Elizabeth Akampurira" },
     { alias: "David",           full: "David Wasen" },
@@ -225,6 +228,57 @@ if (!CONFIG_IS_PLACEHOLDER) {
   };
 
   function norm(s){ return (s||"").replace(/\s+/g,' ').trim().toLowerCase(); }
+
+  async function loadRoster(){
+    if (!db) { state.roster = ROSTER_SEED.slice(); return; }
+    try {
+      const snap = await db.ref('roster').once('value');
+      if (!snap.exists()) {
+        // First-time migration: push the original hardcoded list into Firebase
+        // so the roster becomes admin-editable from here on.
+        const updates = {};
+        ROSTER_SEED.forEach((r, i) => { updates[keySafe(r.full)] = { alias: r.alias, full: r.full, addedAt: Date.now()+i }; });
+        await db.ref('roster').set(updates);
+        state.roster = ROSTER_SEED.slice();
+        return;
+      }
+      const raw = snap.val();
+      state.roster = Object.values(raw)
+        .sort((a,b) => (a.addedAt||0) - (b.addedAt||0))
+        .map(r => ({ alias: r.alias, full: r.full }));
+    } catch (err) {
+      console.error('loadRoster failed:', err);
+      state.lastDbError = 'Could not load the roster: ' + (err && err.message ? err.message : err);
+      if (state.roster.length === 0) state.roster = ROSTER_SEED.slice();
+    }
+  }
+
+  async function addRosterAgent(alias, full){
+    if (!db) return { ok:false, msg:"Firebase isn't configured." };
+    alias = (alias||'').trim(); full = (full||'').trim();
+    if (!alias || !full) return { ok:false, msg:"Both alias and full name are required." };
+    if (state.roster.some(r => norm(r.full) === norm(full))) {
+      return { ok:false, msg:`${full} is already on the roster.` };
+    }
+    try {
+      await db.ref('roster/'+keySafe(full)).set({ alias, full, addedAt: Date.now() });
+      await loadRoster();
+      return { ok:true, msg:`Added ${alias} (${full}) to the roster.` };
+    } catch (err) {
+      return { ok:false, msg:"Could not save: " + (err && err.message ? err.message : err) };
+    }
+  }
+
+  async function removeRosterAgent(full){
+    if (!db) return { ok:false, msg:"Firebase isn't configured." };
+    try {
+      await db.ref('roster/'+keySafe(full)).remove();
+      await loadRoster();
+      return { ok:true, msg:`Removed ${full}. Their logged history is untouched in Firebase \u2014 only future standings and CSV matching are affected.` };
+    } catch (err) {
+      return { ok:false, msg:"Could not remove: " + (err && err.message ? err.message : err) };
+    }
+  }
   function fmt(n){ return Math.round(n).toLocaleString('en-US'); }
   function todayStr(){
     const d = new Date();
@@ -265,6 +319,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     viewingArchiveData: null,
     viewingArchiveLoading: false,
     editingArchiveTargetId: null,
+    roster: [],
   };
 
   function loadFilterFromStorage(){
@@ -301,7 +356,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
   function matchRoster(parsedMap){
     const collected = {};
     const usedKeys = new Set();
-    for (const r of ROSTER) {
+    for (const r of state.roster) {
       const key = norm(r.full);
       if (parsedMap[key] !== undefined) { collected[r.full] = parsedMap[key]; usedKeys.add(key); continue; }
       const aliasKey = norm(r.alias);
@@ -312,16 +367,16 @@ if (!CONFIG_IS_PLACEHOLDER) {
       collected[r.full] = found !== undefined ? found : null;
       if (foundKey) usedKeys.add(foundKey);
     }
-    const unmatchedAgents = ROSTER.filter(r => collected[r.full] === null).map(r => r.alias);
+    const unmatchedAgents = state.roster.filter(r => collected[r.full] === null).map(r => r.alias);
     const unmatchedCsvNames = Object.keys(parsedMap).filter(k => !usedKeys.has(k));
     return { collected, unmatchedAgents, unmatchedCsvNames };
   }
 
   function decodeLogObj(obj){
-    // Firebase stores keys as keySafe(full); map back to full names via ROSTER
+    // Firebase stores keys as keySafe(full); map back to full names via state.roster
     const out = {};
     if (!obj) return out;
-    for (const r of ROSTER) {
+    for (const r of state.roster) {
       const k = keySafe(r.full);
       if (obj[k] !== undefined && obj[k] !== null) out[r.full] = obj[k];
     }
@@ -623,7 +678,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const latestDate = histDates[histDates.length-1];
     const latestDecoded = decodeLogObj(rawLogs[latestDate]);
     let teamTotal = 0, teamTarget = 0;
-    for (const r of ROSTER) {
+    for (const r of state.roster) {
       const v = latestDecoded[r.full];
       if (v !== undefined && v !== null) teamTotal += v;
       teamTarget += targetFor(r.full);
@@ -637,6 +692,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
       closedAt: Date.now(),
       target: state.target,
       overrides: state.overrides,
+      rosterSnapshot: state.roster, // who was actually on the team when this cycle closed
       teamTotal, teamTarget,
       daysLogged: histDates.length,
     };
@@ -674,7 +730,8 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const decoded = lastDate ? decodeLogObj(raw[lastDate]) : {};
     const meta = state.archivedCycles.find(c => c.id === cycleId);
     const overrides = (meta && meta.overrides) || {};
-    state.viewingArchiveData = ROSTER.map(r => {
+    const rosterForCycle = (meta && meta.rosterSnapshot) || state.roster;
+    state.viewingArchiveData = rosterForCycle.map(r => {
       const total = decoded[r.full] !== undefined ? decoded[r.full] : null;
       const target = overrides[r.full] !== undefined ? overrides[r.full] : (meta ? meta.target : TARGET_DEFAULT);
       const hit = total !== null ? total >= target : null;
@@ -692,13 +749,44 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const meta = state.archivedCycles.find(c => c.id === cycleId);
     if (!meta) return;
     const overrides = meta.overrides || {};
+    const rosterForCycle = meta.rosterSnapshot || state.roster;
     let teamTarget = 0;
-    for (const r of ROSTER) teamTarget += (overrides[r.full] !== undefined ? overrides[r.full] : newTarget);
+    for (const r of rosterForCycle) teamTarget += (overrides[r.full] !== undefined ? overrides[r.full] : newTarget);
     await db.ref('archive_meta/'+cycleId).update({ target: newTarget, teamTarget });
     await loadArchivedCyclesMeta();
     if (state.viewingArchiveId === cycleId) {
       await viewArchivedCycle(cycleId);
     }
+  }
+
+  function renderRosterCard(){
+    if (!state.isAdmin) return '';
+    return `<div class="card">
+      <h2>Team Roster</h2>
+      <div class="sub">Add or remove agents here — no code changes or redeploys needed. Removing someone stops them appearing in standings and CSV matching going forward; their historical logged data stays untouched in Firebase.</div>
+      <table class="row-gap">
+        <thead><tr><th class="left">Alias</th><th class="left">Full name (must match your CSV export exactly)</th><th></th></tr></thead>
+        <tbody>
+          ${state.roster.map(r => `<tr>
+            <td class="left">${r.alias}</td>
+            <td class="left">${r.full}</td>
+            <td><button class="btn btn-ghost" data-remove-roster="${encodeURIComponent(r.full)}">Remove</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="controls-row row-gap">
+        <div class="field">
+          <label for="newAgentAlias">Alias</label>
+          <input type="text" id="newAgentAlias" placeholder="e.g. Anitah" style="width:160px;">
+        </div>
+        <div class="field">
+          <label for="newAgentFull">Full name</label>
+          <input type="text" id="newAgentFull" placeholder="e.g. Anitah Nalugwa" style="width:260px;">
+        </div>
+        <button class="btn btn-primary" id="addAgentBtn">Add Agent</button>
+      </div>
+      <div class="status-msg" id="rosterStatusMsg"></div>
+    </div>`;
   }
 
   function renderCycleManagementCard(){
@@ -794,7 +882,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     const prevDate = prevLoggedDate(state.date);
     const prev = prevDate ? state.logs[prevDate] : null;
 
-    const rowsAll = ROSTER.map(r => {
+    const rowsAll = state.roster.map(r => {
       const tgt = targetFor(r.full);
       const cumNow = cur ? cur[r.full] : null;
       const cumPrev = prev ? prev[r.full] : null;
@@ -898,7 +986,7 @@ Milly Nakkazi,5300000
         <div class="card">
           <h2>Standings &mdash; ${state.date}</h2>
           <div class="filter-bar">
-            <span class="filter-count">${hasFilter ? `Showing ${rows.length} of ${ROSTER.length} agents` : `Showing all ${ROSTER.length} agents`}</span>
+            <span class="filter-count">${hasFilter ? `Showing ${rows.length} of ${state.roster.length} agents` : `Showing all ${state.roster.length} agents`}</span>
             <button class="filter-toggle" id="filterToggleBtn">${state.filterOpen ? 'Hide filter' : 'Filter agents'}</button>
           </div>
           ${state.filterOpen ? `
@@ -908,7 +996,7 @@ Milly Nakkazi,5300000
                 <button id="filterNoneBtn">Clear filter</button>
               </div>
               <div class="filter-grid">
-                ${ROSTER.map(r => `
+                ${state.roster.map(r => `
                   <div class="filter-item">
                     <input type="checkbox" id="chk_${keySafe(r.full)}" data-full="${encodeURIComponent(r.full)}" ${(!hasFilter || state.selectedAgents.includes(r.full)) ? 'checked' : ''}>
                     <label for="chk_${keySafe(r.full)}">${r.alias}</label>
@@ -962,6 +1050,7 @@ Milly Nakkazi,5300000
           <div class="footnote">Every date logged here is saved to Firebase and shared live &mdash; anyone with this page's URL sees the same data, updated in real time. "Required today" is recalculated each day from the prior day's balance and the days left to the cycle end date above.</div>
         </div>
 
+        ${renderRosterCard()}
         ${renderCycleManagementCard()}
         ${renderPastCyclesCard()}
       </div>
@@ -1046,12 +1135,12 @@ Milly Nakkazi,5300000
       try {
         await saveLog(state.date, collected);
         await refreshHistoryList();
-        let msg = `Matched ${matchedCount} of ${ROSTER.length} agents for ${state.date}.`;
-        if (matchedCount < ROSTER.length) {
+        let msg = `Matched ${matchedCount} of ${state.roster.length} agents for ${state.date}.`;
+        if (matchedCount < state.roster.length) {
           msg += ` Unmatched agents (no data): ${unmatchedAgents.slice(0,6).join(', ')}${unmatchedAgents.length>6?` +${unmatchedAgents.length-6} more`:''}.`;
         }
         statusEl.textContent = msg;
-        statusEl.className = "status-msg show " + (matchedCount === ROSTER.length ? "status-ok" : "status-warn");
+        statusEl.className = "status-msg show " + (matchedCount === state.roster.length ? "status-ok" : "status-warn");
       } catch (err) {
         statusEl.textContent = "Firebase rejected this save: " + (err && err.message ? err.message : err) + " — check your database rules or connection, nothing was saved.";
         statusEl.className = "status-msg show status-warn";
@@ -1092,7 +1181,7 @@ Milly Nakkazi,5300000
     const filterNoneBtn = document.getElementById('filterNoneBtn');
     if (filterNoneBtn) {
       filterNoneBtn.addEventListener('click', () => {
-        state.selectedAgents = ROSTER.map(r => r.full).length ? [ROSTER[0].full] : [];
+        state.selectedAgents = state.roster.map(r => r.full).length ? [state.roster[0].full] : [];
         // "Clear filter" here means narrow to nothing selected visibly checked off;
         // simplest reliable behavior: uncheck everything by selecting an empty, existing agent set
         state.selectedAgents = ['__none__'];
@@ -1103,7 +1192,7 @@ Milly Nakkazi,5300000
     document.querySelectorAll('.filter-item input[type="checkbox"]').forEach(chk => {
       chk.addEventListener('change', () => {
         const currentlyAll = state.selectedAgents.length === 0;
-        let selected = currentlyAll ? ROSTER.map(r => r.full) : state.selectedAgents.slice();
+        let selected = currentlyAll ? state.roster.map(r => r.full) : state.selectedAgents.slice();
         selected = selected.filter(f => f !== '__none__');
         document.querySelectorAll('.filter-item input[type="checkbox"]').forEach(c => {
           const full = decodeURIComponent(c.dataset.full);
@@ -1116,6 +1205,38 @@ Milly Nakkazi,5300000
       });
     });
 
+    const addAgentBtn = document.getElementById('addAgentBtn');
+    if (addAgentBtn) addAgentBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('rosterStatusMsg');
+      const alias = document.getElementById('newAgentAlias').value;
+      const full = document.getElementById('newAgentFull').value;
+      addAgentBtn.disabled = true;
+      const result = await addRosterAgent(alias, full);
+      addAgentBtn.disabled = false;
+      if (result.ok) {
+        render();
+      } else {
+        statusEl.textContent = result.msg;
+        statusEl.className = "status-msg show status-warn";
+      }
+    });
+    document.querySelectorAll('[data-remove-roster]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const full = decodeURIComponent(btn.dataset.removeRoster);
+        if (!confirm(`Remove ${full} from the roster? Their historical logs stay in Firebase, but they'll drop out of standings and CSV matching.`)) return;
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+        const result = await removeRosterAgent(full);
+        if (!result.ok) {
+          const statusEl = document.getElementById('rosterStatusMsg');
+          if (statusEl) { statusEl.textContent = result.msg; statusEl.className = "status-msg show status-warn"; }
+          btn.disabled = false;
+          btn.textContent = 'Remove';
+        } else {
+          render();
+        }
+      });
+    });
     const openCloseCycleBtn = document.getElementById('openCloseCycleBtn');
     if (openCloseCycleBtn) openCloseCycleBtn.addEventListener('click', () => {
       state.cycleMgmtOpen = true;
@@ -1194,6 +1315,7 @@ Milly Nakkazi,5300000
       });
     }
     if (db) {
+      await loadRoster();
       await loadSettings();
       await seedBaselineIfEmpty();
       await refreshHistoryList();
@@ -1217,6 +1339,8 @@ Milly Nakkazi,5300000
         state.overrides = s.overrides || {};
         render();
       });
+    } else {
+      state.roster = ROSTER_SEED.slice();
     }
     render();
   }
