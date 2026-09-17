@@ -184,6 +184,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);}
 
 <div class="main">
 
+<div class="notice bad" id="unsynced-banner" style="display:none;margin:18px 30px 0;">
+  ⚠ Some changes on this device haven't synced to Firebase (likely a sign-in / security-rules issue). A page reload could lose them.
+  <button class="btn btn-sm" style="margin-left:8px;" onclick="retrySync()">Retry sync now</button>
+</div>
+
 <!-- ============ DASHBOARD ============ -->
 <div class="section active" id="section-dashboard">
   <div class="page-head"><h2>Command center</h2><p id="dash-sub">Cycle to date, all agents</p></div>
@@ -273,6 +278,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);}
   <div class="card" id="preview-card" style="display:none;">
     <div class="card-h">Preview <span class="sub" id="preview-sub"></span></div>
     <div class="tbl-wrap" id="preview-table"></div>
+  </div>
+  <div class="card">
+    <div class="card-h">Recent imports for this metric <span class="sub">Remove a day's CSV if it was uploaded wrong or twice</span></div>
+    <div class="tbl-wrap" id="recent-imports-table"><p class="small-muted">No imports yet for this metric.</p></div>
   </div>
 </div>
 
@@ -442,6 +451,7 @@ let state = {
 };
 
 let pendingImport = null, importType = "tasks", dashScope = "cycle", agentScope = "cycle";
+let hasUnsyncedChanges = false; // true whenever a dbWrite failed to reach Firebase
 let debriefMode = "day";
 let lastDebriefText = { team: "", agents: {} };
 let chartTrend=null, chartAgentTrend=null, chartPipeline=null;
@@ -493,17 +503,48 @@ function setSyncPill(ok,msg){
 
 async function dbWrite(path, value){
   saveLocal();
-  if (!db) { setSyncPill(false,'Local only — Firebase unavailable'); return; }
+  if (!db) { setSyncPill(false,'Local only — Firebase unavailable'); hasUnsyncedChanges = true; return false; }
   try{
     await db.ref(ROOT+'/'+path).set(value);
     setSyncPill(true, isAdmin ? 'Synced across devices' : 'Synced (view-only until sign-in)');
+    return true;
   }catch(err){
-    setSyncPill(false, 'Saved on this device — sign in (Settings) to sync');
+    setSyncPill(false, 'NOT synced — saved on this device only');
+    hasUnsyncedChanges = true;
+    renderUnsyncedBanner();
+    return false;
   }
+}
+async function retrySync(){
+  if (!db) { showToast('Firebase unavailable — cannot sync','error'); return; }
+  try{
+    await db.ref(ROOT).set(state);
+    hasUnsyncedChanges = false;
+    setSyncPill(true, isAdmin ? 'Synced across devices' : 'Synced (view-only until sign-in)');
+    renderUnsyncedBanner();
+    showToast('Synced','success');
+  }catch(err){
+    setSyncPill(false, 'NOT synced — saved on this device only');
+    showToast('Sync failed — check sign-in / Firebase rules','error');
+  }
+}
+function renderUnsyncedBanner(){
+  const el = document.getElementById('unsynced-banner');
+  if (!el) return;
+  el.style.display = hasUnsyncedChanges ? 'block' : 'none';
 }
 
 async function loadFromFirebase(){
   if (!db) { setSyncPill(false,'Local only — Firebase unavailable'); return; }
+  if (hasUnsyncedChanges){
+    // A previous write on this device never reached Firebase. Pulling the remote
+    // snapshot now would silently overwrite that unsynced local data and it would
+    // be gone. Refuse to pull until the user resolves it (sign in + retry sync).
+    setSyncPill(false, 'NOT synced — local changes pending, refresh skipped to protect them');
+    renderUnsyncedBanner();
+    renderEverything();
+    return;
+  }
   try{
     const snap = await db.ref(ROOT).once('value');
     if (snap.exists()){
@@ -653,6 +694,48 @@ function setImportType(type, btn){
   document.getElementById('preview-card').style.display='none';
   document.getElementById('import-btn').disabled = true;
   document.getElementById('import-status').textContent = '';
+  renderRecentImports();
+}
+function renderRecentImports(){
+  const el = document.getElementById('recent-imports-table');
+  if (!el) return;
+  let rows = [];
+  if (importType === 'collections'){
+    const snapDates = Object.keys(state.collectionsSnapshot||{}).map(d=>({date:d, mode:'cumulative'}));
+    const dailyDates = Object.keys(state.collectionsDaily||{}).map(d=>({date:d, mode:'daily'}));
+    rows = [...snapDates, ...dailyDates];
+  } else {
+    rows = Object.keys(state.hourly[importType]||{}).map(d=>({date:d, mode:null}));
+  }
+  rows.sort((a,b)=> b.date.localeCompare(a.date));
+  if (!rows.length){ el.innerHTML = '<p class="small-muted">No imports yet for this metric.</p>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Date</th><th>Mode</th><th>Agents in file</th><th></th></tr></thead><tbody>` +
+    rows.map(r=>{
+      const count = importType==='collections'
+        ? Object.keys((r.mode==='daily'?state.collectionsDaily:state.collectionsSnapshot)[r.date]||{}).length
+        : Object.keys(state.hourly[importType][r.date]||{}).length;
+      return `<tr><td>${r.date}</td><td>${r.mode||'—'}</td><td>${count}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteImport('${importType}','${r.date}',${r.mode?`'${r.mode}'`:null})">Remove</button></td></tr>`;
+    }).join('') + `</tbody></table>`;
+}
+async function deleteImport(type, date, mode){
+  const label = mode ? `${type} (${mode}) for ${date}` : `${type} for ${date}`;
+  document.getElementById('modal-msg').textContent = `Remove the imported CSV data — ${label}? This can't be undone.`;
+  modalCb = async () => {
+    let ok;
+    if (type === 'collections'){
+      const store = mode === 'daily' ? state.collectionsDaily : state.collectionsSnapshot;
+      delete store[date];
+      ok = await dbWrite('collections'+(mode==='daily'?'Daily':'Snapshot')+'/'+date, null);
+    } else {
+      delete state.hourly[type][date];
+      ok = await dbWrite('hourly/'+type+'/'+date, null);
+    }
+    showToast(ok ? 'Removed '+label : 'Removed locally — NOT synced (retry sync in the banner above)', ok?'success':'error');
+    renderRecentImports();
+    renderEverything();
+  };
+  document.getElementById('modal-bg').classList.add('show');
 }
 function handleDrop(e){ e.preventDefault(); document.getElementById('dropzone').classList.remove('drag');
   const f=e.dataTransfer.files[0]; if(f) handleCsvFile(f); }
@@ -692,29 +775,32 @@ function processCsvText(text){
   document.getElementById('import-status').textContent = 'Ready to import';
   showToast('CSV parsed — review and import', 'success');
 }
-function commitImport(){
+async function commitImport(){
   if (!pendingImport) return;
   const date = document.getElementById('import-date').value || todayStr();
   ensureCycleRegistered(date);
+  let ok = true;
   if (importType === 'collections'){
     const mode = document.getElementById('collections-mode').value;
     const store = mode==='daily' ? state.collectionsDaily : state.collectionsSnapshot;
     store[date] = store[date] || {};
     Object.entries(pendingImport.matched).forEach(([name,val])=>{ store[date][keySafe(name)] = val; });
-    dbWrite('collections'+(mode==='daily'?'Daily':'Snapshot')+'/'+date, store[date]);
+    ok = await dbWrite('collections'+(mode==='daily'?'Daily':'Snapshot')+'/'+date, store[date]);
   } else {
     state.hourly[importType][date] = state.hourly[importType][date] || {};
     Object.entries(pendingImport.matched).forEach(([name,vals])=>{ state.hourly[importType][date][keySafe(name)] = vals; });
-    dbWrite('hourly/'+importType+'/'+date, state.hourly[importType][date]);
+    ok = await dbWrite('hourly/'+importType+'/'+date, state.hourly[importType][date]);
   }
-  dbWrite('cycles/'+cycleCodeFor(cycleStartFor(date)), state.cycles[cycleCodeFor(cycleStartFor(date))]);
-  showToast('Imported for '+date, 'success');
+  await dbWrite('cycles/'+cycleCodeFor(cycleStartFor(date)), state.cycles[cycleCodeFor(cycleStartFor(date))]);
+  if (ok) showToast('Imported for '+date+' — synced', 'success');
+  else showToast('Imported for '+date+' — SAVED LOCALLY ONLY, not synced (sign in & retry sync in Settings)', 'error');
   pendingImport = null;
   document.getElementById('import-btn').disabled = true;
   document.getElementById('preview-card').style.display='none';
   document.getElementById('import-status').textContent = '';
   document.getElementById('csv-file-input').value = '';
   renderEverything();
+  renderRecentImports();
 }
 
 // ---------- computation core ----------
@@ -883,6 +969,7 @@ function showSection(id){
   if (id==='team') renderTeam();
   if (id==='debrief') renderDebriefRefRow();
   if (id==='settings') renderSettings();
+  if (id==='import') renderRecentImports();
 }
 
 // ================= DASHBOARD =================
@@ -1383,8 +1470,10 @@ function restoreBackup(input){
 }
 function confirmWipe(){
   document.getElementById('modal-msg').textContent = 'Delete ALL data — every CSV import, every day? This cannot be undone.';
-  modalCb = () => { state.hourly={tasks:{},calls:{},connects:{}}; state.collectionsSnapshot={}; state.collectionsDaily={}; state.cycles={};
-    dbWrite('', state); showToast('All data wiped','success'); renderEverything(); };
+  modalCb = async () => { state.hourly={tasks:{},calls:{},connects:{}}; state.collectionsSnapshot={}; state.collectionsDaily={}; state.cycles={};
+    const ok = await dbWrite('', state);
+    showToast(ok ? 'All data wiped' : 'Wiped locally — NOT synced (retry sync)', ok?'success':'error');
+    renderEverything(); renderRecentImports(); };
   document.getElementById('modal-bg').classList.add('show');
 }
 function modalConfirm(){ if(modalCb) modalCb(); modalCb=null; document.getElementById('modal-bg').classList.remove('show'); }
@@ -1401,6 +1490,7 @@ window.addEventListener('load', async () => {
   document.getElementById('import-date').value = todayStr();
   updateCycleBadge();
   renderDashboard();
+  renderRecentImports();
   await loadFromFirebase();
 });
 </script>
