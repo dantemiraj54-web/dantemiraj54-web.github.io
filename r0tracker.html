@@ -321,6 +321,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     editingArchiveTargetId: null,
     roster: [],
     applyStatusMsg: null,   // { text, cls } — survives render() unlike a raw DOM write
+    settingsStatusMsg: null,
     cycleStatusMsg: null,
     rosterStatusMsg: null,
   };
@@ -417,6 +418,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
     } catch (err) {
       console.error('saveSettings failed:', err);
       state.lastDbError = 'Could not save settings: ' + (err && err.message ? err.message : err);
+      throw err; // let the input handlers know the save didn't actually land
     }
   }
 
@@ -966,6 +968,7 @@ if (!CONFIG_IS_PLACEHOLDER) {
               <input type="file" id="fileInput" accept=".csv,text/csv">
             </div>
           </div>
+          <div class="status-msg ${state.settingsStatusMsg ? 'show '+state.settingsStatusMsg.cls : ''}" id="settingsStatusMsg">${state.settingsStatusMsg ? state.settingsStatusMsg.text : ''}</div>
           <div class="row-gap">
             <label style="font-size:12px;color:var(--ink-soft);font-weight:600;">Or paste CSV</label>
             <textarea id="pasteArea" class="row-gap" placeholder="Consultant,Total
@@ -1098,13 +1101,29 @@ Milly Nakkazi,5300000
     });
     const targetInputEl = document.getElementById('targetInput');
     if (targetInputEl) targetInputEl.addEventListener('change', async (e) => {
+      const previous = state.target;
       state.target = Number(e.target.value) || TARGET_DEFAULT;
-      await saveSettings(); render();
+      try {
+        await saveSettings();
+        state.settingsStatusMsg = { text: "Target updated.", cls: "status-ok" };
+      } catch (err) {
+        state.target = previous; // don't leave the input showing a value that didn't actually save
+        state.settingsStatusMsg = { text: "Couldn't save the target: " + (err && err.message ? err.message : err), cls: "status-warn" };
+      }
+      render();
     });
     const cycleEndInputEl = document.getElementById('cycleEndInput');
     if (cycleEndInputEl) cycleEndInputEl.addEventListener('change', async (e) => {
+      const previous = state.cycleEnd;
       state.cycleEnd = e.target.value || CYCLE_END_DEFAULT;
-      await saveSettings(); render();
+      try {
+        await saveSettings();
+        state.settingsStatusMsg = { text: "Cycle end date updated.", cls: "status-ok" };
+      } catch (err) {
+        state.cycleEnd = previous;
+        state.settingsStatusMsg = { text: "Couldn't save the cycle end date: " + (err && err.message ? err.message : err), cls: "status-warn" };
+      }
+      render();
     });
     const fileInputEl = document.getElementById('fileInput');
     if (fileInputEl) fileInputEl.addEventListener('change', (e) => {
