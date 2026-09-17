@@ -3,1496 +3,1800 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Tracker · Deal Sealers</title>
+<title>Agents Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 :root{
-  --bg:#14171c; --bg2:#1a1e25; --bg3:#20252e; --bg4:#2a3040;
-  --card:#1c2028; --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.15);
-  --text:#eceff4; --text2:#98a0b3; --text3:#5c6478;
-  --accent:#e8a33d; --accent-dim:rgba(232,163,61,0.14);
-  --gold2:#d9662b;
-  --good:#4fbe8a; --good-dim:rgba(79,190,138,0.14);
-  --bad:#e15b5b; --bad-dim:rgba(225,91,91,0.14);
-  --blue:#5b8fe1;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --bg:#0d0f12; --bg2:#141720; --bg3:#1c2030; --bg4:#242840;
+  --card:#181c28; --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.16);
+  --text:#e8eaf2; --text2:#9096b3; --text3:#5c6284;
+  --accent:#4f8ef7; --accent2:#7c5cfc; --green:#22c98a; --amber:#f5a623; --red:#f55a5a; --teal:#1dc9a0;
+  --font:'IBM Plex Mono', ui-monospace, monospace;
 }
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg);color:var(--text);font-size:13.5px;min-height:100vh;display:flex;line-height:1.5;}
-h1,h2,h3{font-weight:700;letter-spacing:-0.01em;}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;}
+body{display:flex;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+button{font-family:var(--font);cursor:pointer;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:4px;}
 
-.sidebar{width:210px;min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);
+/* Sidebar */
+.sidebar{width:212px;min-height:100vh;background:var(--bg2);border-right:1px solid var(--border);
   display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;}
-.logo{padding:20px 18px 14px;border-bottom:1px solid var(--border);}
-.logo h1{font-size:17px;color:var(--accent);}
-.logo p{font-size:11px;color:var(--text3);margin-top:2px;}
-.cycle-badge{margin:14px 16px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:12px 13px;}
-.cycle-badge .lbl{font-size:10px;color:var(--text3);margin-bottom:4px;}
-.cycle-badge .val{font-size:13px;color:var(--good);font-weight:600;}
-.cycle-badge .sub{font-size:10.5px;color:var(--text3);margin-top:3px;}
-.sync-pill{margin:0 16px 10px;font-size:10.5px;padding:5px 9px;border-radius:7px;display:flex;align-items:center;gap:6px;}
-.sync-pill.ok{background:var(--good-dim);color:var(--good);}
-.sync-pill.bad{background:var(--bad-dim);color:var(--bad);}
-.sync-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.logo{padding:18px 16px;border-bottom:1px solid var(--border);}
+.logo h1{font-size:15px;font-weight:700;letter-spacing:0.5px;color:var(--accent);}
+.logo p{font-size:9px;color:var(--text3);letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;}
+.cycle-badge{margin:12px 14px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;}
+.cycle-badge .label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:4px;}
+.cycle-badge .val{font-size:12px;color:var(--green);font-weight:600;}
+.cycle-badge .sub{font-size:10px;color:var(--text3);margin-top:3px;}
 nav{flex:1;padding:6px 0;}
-nav a{display:flex;align-items:center;gap:9px;padding:10px 18px;color:var(--text2);text-decoration:none;
-  font-size:13px;cursor:pointer;border-left:3px solid transparent;transition:.15s;}
+nav a{display:flex;align-items:center;gap:9px;padding:9px 16px;color:var(--text2);
+  font-size:12px;letter-spacing:0.3px;cursor:pointer;border-left:2px solid transparent;transition:.15s;}
 nav a:hover{color:var(--text);background:var(--bg3);}
-nav a.active{color:var(--accent);background:var(--accent-dim);border-left-color:var(--accent);}
-nav a .ic{width:16px;text-align:center;}
+nav a.active{color:var(--accent);background:rgba(79,142,247,0.08);border-left-color:var(--accent);}
+nav a .icon{width:16px;text-align:center;font-size:14px;}
+.sync-status{margin:10px 14px;padding:8px 10px;font-size:10px;border-radius:6px;background:var(--bg3);color:var(--text3);
+  display:flex;align-items:center;gap:6px;}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0;}
+.sync-dot.ok{background:var(--green);}
+.sync-dot.local{background:var(--amber);}
 
+/* Main */
 .main{flex:1;min-height:100vh;overflow-y:auto;}
-.section{display:none;padding:26px 30px;max-width:1180px;}
+.section{display:none;padding:22px 26px 60px;max-width:1180px;}
 .section.active{display:block;}
-.page-head{margin-bottom:22px;}
-.page-head h2{font-size:20px;}
-.page-head p{color:var(--text2);font-size:12.5px;margin-top:4px;}
+.page-header{margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;}
+.page-header h2{font-size:18px;font-weight:700;letter-spacing:0.3px;}
+.page-header p{color:var(--text2);font-size:11px;margin-top:4px;}
 
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;}
-.card-h{font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:13px;padding-bottom:10px;border-bottom:1px solid var(--border);
-  display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
-.card-h .sub{font-size:11px;color:var(--text3);font-weight:400;}
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;}
+.card-header{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);
+  margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.card-header .right{text-transform:none;letter-spacing:0;font-size:11px;}
 
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:11px;margin-bottom:16px;}
-.metric{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:13px 12px;}
-.metric .ml{font-size:10.5px;color:var(--text3);margin-bottom:5px;}
-.metric .mv{font-size:20px;font-weight:700;}
-.metric .ms{font-size:10.5px;color:var(--text2);margin-top:3px;}
+/* metric grid */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:13px 12px;}
+.metric .mlabel{font-size:9px;letter-spacing:1.3px;text-transform:uppercase;color:var(--text3);margin-bottom:6px;}
+.metric .mval{font-size:21px;font-weight:700;color:var(--text);}
+.metric .msub{font-size:10px;color:var(--text2);margin-top:3px;}
+.metric.good .mval{color:var(--green);}
+.metric.bad .mval{color:var(--red);}
+.metric.warn .mval{color:var(--amber);}
 
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:16px;}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px;margin-bottom:16px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
 @media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr;}}
 
+/* table */
 .tbl-wrap{overflow-x:auto;}
-table{width:100%;border-collapse:collapse;font-size:12.5px;}
-th{text-align:left;padding:8px 10px;font-size:10.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;white-space:nowrap;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:8px 10px;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--text3);border-bottom:1px solid var(--border);font-weight:500;white-space:nowrap;}
 td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);white-space:nowrap;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:var(--bg3);color:var(--text);}
-.name-cell{color:var(--text);font-weight:600;}
 .rank{color:var(--accent);font-weight:700;}
-.pos{color:var(--good);} .neg{color:var(--bad);}
+.name-cell{color:var(--text);font-weight:600;}
+.pos{color:var(--green);} .neg{color:var(--red);} .neutral{color:var(--text2);}
 
-.tabs{display:flex;gap:5px;margin-bottom:15px;flex-wrap:wrap;}
-.tab-btn{padding:7px 14px;border:1px solid var(--border2);background:transparent;color:var(--text2);
-  border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;transition:.15s;}
-.tab-btn.active,.tab-btn:hover{background:var(--accent);border-color:var(--accent);color:#1a1305;}
+/* buttons/tabs */
+.tabs{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap;}
+.tab-btn{padding:7px 14px;border:1px solid var(--border);background:transparent;color:var(--text2);
+  border-radius:6px;font-size:11px;letter-spacing:0.3px;transition:.15s;}
+.tab-btn.active,.tab-btn:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn{padding:8px 16px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);
+  font-size:11px;letter-spacing:0.3px;transition:.15s;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn-primary:hover{background:#3f7ee0;color:#fff;}
+.btn-green{background:var(--green);border-color:var(--green);color:#04241a;}
+.btn-green:hover{opacity:.88;color:#04241a;}
+.btn-red{background:transparent;border-color:var(--red);color:var(--red);}
+.btn-red:hover{background:var(--red);color:#fff;}
+.btn-sm{padding:5px 10px;font-size:10px;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
 
-.form-group{margin-bottom:12px;}
-label{display:block;font-size:11px;color:var(--text3);margin-bottom:5px;font-weight:600;}
-input,select,textarea{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;
-  padding:8px 10px;color:var(--text);font-size:12.5px;font-family:inherit;outline:none;}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);}
-.btn{padding:8px 15px;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);
-  border-radius:7px;cursor:pointer;font-size:12.5px;font-weight:600;transition:.15s;}
-.btn:hover{background:var(--accent);color:#1a1305;}
-.btn-danger{border-color:var(--bad);background:var(--bad-dim);color:var(--bad);}
-.btn-danger:hover{background:var(--bad);color:#1a0a0a;}
-.btn-good{border-color:var(--good);background:var(--good-dim);color:var(--good);}
-.btn-good:hover{background:var(--good);color:#06120c;}
-.btn-sm{padding:5px 10px;font-size:11px;}
-.btn[disabled]{opacity:.4;cursor:not-allowed;}
+/* forms */
+label{display:block;font-size:10px;letter-spacing:0.8px;text-transform:uppercase;color:var(--text3);margin-bottom:5px;}
+input[type=text],input[type=number],input[type=date],select,textarea{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);
+  padding:8px 10px;font-family:var(--font);font-size:12px;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);}
+.field{margin-bottom:12px;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
 
-.dropzone{border:2px dashed var(--border2);border-radius:12px;padding:28px;text-align:center;cursor:pointer;
-  transition:.2s;margin-bottom:14px;}
-.dropzone:hover,.dropzone.drag{border-color:var(--accent);background:var(--accent-dim);}
-.dropzone .ic{font-size:28px;margin-bottom:6px;opacity:.6;}
-.dropzone p{color:var(--text2);font-size:12.5px;margin-bottom:3px;}
-.dropzone small{color:var(--text3);font-size:10.5px;}
+/* dropzone */
+.dropzone{border:2px dashed var(--border2);border-radius:10px;padding:26px;text-align:center;cursor:pointer;
+  color:var(--text2);transition:.15s;background:var(--bg3);}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--accent);color:var(--text);}
+.dropzone .big{font-size:24px;margin-bottom:6px;}
 
-.toast{position:fixed;bottom:22px;right:22px;background:var(--bg4);border:1px solid var(--border2);
-  border-radius:9px;padding:11px 16px;font-size:12.5px;z-index:1000;transform:translateY(80px);opacity:0;
-  transition:.3s;pointer-events:none;max-width:340px;}
-.toast.show{transform:translateY(0);opacity:1;}
-.toast.success{border-color:var(--good);color:var(--good);}
-.toast.error{border-color:var(--bad);color:var(--bad);}
+/* pills / badges */
+.pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:10px;letter-spacing:0.3px;font-weight:600;}
+.pill-green{background:rgba(34,201,138,.14);color:var(--green);}
+.pill-red{background:rgba(245,90,90,.14);color:var(--red);}
+.pill-amber{background:rgba(245,166,35,.14);color:var(--amber);}
+.pill-blue{background:rgba(79,142,247,.14);color:var(--accent);}
+.pill-grey{background:rgba(255,255,255,.06);color:var(--text3);}
 
-.chart-wrap{position:relative;height:210px;}
-.chart-wrap-sm{position:relative;height:150px;}
+/* debrief cards */
+.debrief-card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:15px;margin-bottom:12px;}
+.debrief-card .dc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;}
+.debrief-card .dc-name{font-size:13px;font-weight:700;color:var(--text);}
+.debrief-card .dc-tags{display:flex;gap:5px;flex-wrap:wrap;}
+.debrief-body{font-size:12px;line-height:1.65;color:var(--text2);white-space:pre-wrap;}
+.debrief-body b, .debrief-body strong{color:var(--text);}
+.copy-line{margin-top:10px;display:flex;justify-content:flex-end;}
+.you-line{color:var(--green);} .need-line{color:var(--amber);}
 
-.flag{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:4px 9px;
-  border-radius:99px;margin:2px 4px 2px 0;white-space:nowrap;}
-.flag.good{background:var(--good-dim);color:var(--good);}
-.flag.bad{background:var(--bad-dim);color:var(--bad);}
-.flag.note{background:var(--bg4);color:var(--text2);}
+/* funnel */
+.funnel-wrap{display:flex;align-items:stretch;gap:4px;}
+.funnel-stage{flex:1;text-align:center;position:relative;}
+.funnel-bar{background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:14px 8px;position:relative;overflow:hidden;}
+.funnel-bar .fnum{font-size:19px;font-weight:700;color:var(--text);}
+.funnel-bar .flabel{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-top:4px;}
+.funnel-bar .fpct{font-size:10px;color:var(--accent);margin-top:4px;}
+.funnel-arrow{display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:16px;padding:0 2px;}
+.funnel-break{border-color:var(--red) !important;}
+.funnel-break .fnum{color:var(--red);}
 
-.funnel{display:flex;flex-direction:column;gap:6px;}
-.funnel-step{display:flex;align-items:center;gap:10px;}
-.funnel-lbl{font-size:11px;color:var(--text2);width:120px;text-align:right;flex-shrink:0;}
-.funnel-bar{height:26px;border-radius:5px;display:flex;align-items:center;padding:0 10px;font-size:11px;
-  color:#fff;white-space:nowrap;min-width:70px;font-weight:600;}
-.funnel-pct{font-size:10px;opacity:.85;margin-left:5px;font-weight:400;}
-.break-note{font-size:11px;color:var(--bad);background:var(--bad-dim);border-radius:7px;padding:8px 11px;margin-top:8px;}
+/* hour heat */
+.hour-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;}
+.hour-cell{background:var(--bg4);border-radius:5px;padding:6px 2px;text-align:center;font-size:9px;color:var(--text3);border:1px solid transparent;}
+.hour-cell .hv{font-size:12px;font-weight:700;color:var(--text);}
+.hour-cell.strong{border-color:var(--green);}
+.hour-cell.weak{border-color:var(--red);}
+.hour-cell.excluded{opacity:.35;}
 
-.heat-table td{text-align:center;font-weight:600;border-radius:4px;}
-.heat-table th{text-align:center;}
-.heat-table td.excl{opacity:.35;font-style:italic;font-weight:400;}
-
-.debrief-card{background:var(--bg3);border:1px solid var(--border);border-radius:11px;padding:16px;margin-bottom:13px;}
-.debrief-card .dname{font-size:13.5px;font-weight:700;margin-bottom:2px;}
-.debrief-card .dmeta{font-size:10.5px;color:var(--text3);margin-bottom:10px;}
-.debrief-txt{white-space:pre-wrap;font-size:12.5px;color:var(--text2);line-height:1.7;background:var(--bg2);
-  border:1px solid var(--border);border-radius:8px;padding:12px 13px;margin-bottom:9px;}
-
-.filter-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:15px;}
-.filter-row label{margin:0;font-size:11px;white-space:nowrap;}
-.filter-row select,.filter-row input[type=date]{width:auto;min-width:130px;padding:7px 9px;font-size:12px;}
-.chip-row{display:flex;flex-wrap:wrap;gap:7px;}
-.chip{display:flex;align-items:center;gap:6px;font-size:11.5px;background:var(--bg4);border:1px solid var(--border2);
-  border-radius:99px;padding:5px 6px 5px 11px;cursor:pointer;user-select:none;}
-.chip input{width:auto;margin:0;}
-.chip.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
-
-.notice{background:var(--accent-dim);border:1px solid rgba(232,163,61,.35);color:var(--accent);border-radius:9px;
-  padding:11px 14px;font-size:11.5px;margin-bottom:14px;line-height:1.6;}
-.notice.bad{background:var(--bad-dim);border-color:rgba(225,91,91,.35);color:var(--bad);}
-.small-muted{font-size:11px;color:var(--text3);}
-
-::-webkit-scrollbar{width:5px;height:5px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px;}
-
-.agent-mgmt-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);}
-.agent-mgmt-row:last-child{border-bottom:none;}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:900;display:none;align-items:center;justify-content:center;}
-.modal-bg.show{display:flex;}
-.modal-box{background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:22px;max-width:340px;width:90%;}
+/* misc */
+.muted{color:var(--text3);}
+.small{font-size:10.5px;}
+.empty-note{color:var(--text3);font-size:12px;padding:14px 0;}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg4);border:1px solid var(--border2);
+  border-radius:8px;padding:11px 16px;font-size:12px;z-index:999;opacity:0;transform:translateY(8px);
+  transition:.25s;pointer-events:none;}
+.toast.show{opacity:1;transform:translateY(0);}
+.toast.success{border-color:var(--green);color:var(--green);}
+.toast.error{border-color:var(--red);color:var(--red);}
+.chip-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.chip{display:flex;align-items:center;gap:6px;background:var(--bg4);border:1px solid var(--border2);
+  border-radius:20px;padding:5px 6px 5px 12px;font-size:11px;}
+.chip button{background:none;border:none;color:var(--text3);font-size:13px;line-height:1;padding:2px 4px;}
+.chip button:hover{color:var(--red);}
+canvas{max-width:100%;}
+.agent-filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
 </style>
 </head>
 <body>
-
 <div class="sidebar">
-  <div class="logo"><h1>Agent Tracker</h1><p>Deal Sealers · Unifi Uganda</p></div>
+  <div class="logo"><h1>AGENTS TRACKER</h1><p>Deal Sealers &middot; Collections</p></div>
   <div class="cycle-badge">
-    <div class="lbl">Current cycle</div>
-    <div class="val" id="cycle-label">—</div>
-    <div class="sub" id="cycle-day-label">Day — of —</div>
+    <div class="label">Current Cycle</div>
+    <div class="val" id="cycle-label">&mdash;</div>
+    <div class="sub" id="cycle-day-label">Day &mdash;</div>
   </div>
-  <div class="sync-pill" id="sync-pill">Loading…</div>
-  <nav>
-    <a class="active" onclick="showSection('dashboard')" data-section="dashboard"><span class="ic">◆</span> Dashboard</a>
-    <a onclick="showSection('import')" data-section="import"><span class="ic">⇪</span> Import CSVs</a>
-    <a onclick="showSection('agents')" data-section="agents"><span class="ic">☰</span> Agents</a>
-    <a onclick="showSection('team')" data-section="team"><span class="ic">▦</span> Team analysis</a>
-    <a onclick="showSection('debrief')" data-section="debrief"><span class="ic">✉</span> Debriefs</a>
-    <a onclick="showSection('settings')" data-section="settings"><span class="ic">⚙</span> Settings</a>
+  <nav id="nav">
+    <a data-section="debrief" class="active"><span class="icon">&#128221;</span> Daily Debrief</a>
+    <a data-section="dashboard"><span class="icon">&#128202;</span> Team Dashboard</a>
+    <a data-section="pipeline"><span class="icon">&#128257;</span> Pipeline</a>
+    <a data-section="agentprofile"><span class="icon">&#128100;</span> Agent Profile</a>
+    <a data-section="import"><span class="icon">&#8593;</span> CSV Import</a>
+    <a data-section="reports"><span class="icon">&#128203;</span> Reports</a>
+    <a data-section="roster"><span class="icon">&#9776;</span> Agents</a>
+    <a data-section="settings"><span class="icon">&#9881;</span> Settings</a>
   </nav>
+  <div class="sync-status" id="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Connecting&hellip;</span></div>
 </div>
 
 <div class="main">
 
-<div class="notice bad" id="unsynced-banner" style="display:none;margin:18px 30px 0;">
-  ⚠ Some changes on this device haven't synced to Firebase (likely a sign-in / security-rules issue). A page reload could lose them.
-  <button class="btn btn-sm" style="margin-left:8px;" onclick="retrySync()">Retry sync now</button>
+<!-- ============ DEBRIEF ============ -->
+<div class="section active" id="section-debrief">
+  <div class="page-header">
+    <div><h2>Daily Debrief</h2><p id="debrief-subtitle">Human, copy-paste-ready feedback for each agent</p></div>
+    <div class="row" style="align-items:center;">
+      <div class="field" style="margin-bottom:0;min-width:170px;"><label>Date</label><input type="date" id="debrief-date"></div>
+      <button class="btn btn-primary" id="debrief-refresh-btn">Build Debrief</button>
+      <button class="btn" id="debrief-copy-all-btn">Copy Team Summary</button>
+    </div>
+  </div>
+  <div id="debrief-team-summary"></div>
+  <div class="agent-filter-bar">
+    <select id="debrief-agent-filter" style="max-width:240px;"></select>
+    <span class="muted small">Showing individual debriefs below</span>
+  </div>
+  <div id="debrief-agents"></div>
 </div>
 
-<!-- ============ DASHBOARD ============ -->
-<div class="section active" id="section-dashboard">
-  <div class="page-head"><h2>Command center</h2><p id="dash-sub">Cycle to date, all agents</p></div>
-  <div class="tabs">
-    <button class="tab-btn active" data-scope="cycle" onclick="setDashScope('cycle',this)">This cycle</button>
-    <button class="tab-btn" data-scope="week" onclick="setDashScope('week',this)">This week</button>
-    <button class="tab-btn" data-scope="yesterday" onclick="setDashScope('yesterday',this)">Yesterday</button>
-    <button class="tab-btn" data-scope="alltime" onclick="setDashScope('alltime',this)">All time</button>
+<!-- ============ TEAM DASHBOARD ============ -->
+<div class="section" id="section-dashboard">
+  <div class="page-header">
+    <div><h2>Team Dashboard</h2><p>Visual analytics across the team</p></div>
+    <div class="tabs" id="dash-period-tabs">
+      <button class="tab-btn active" data-period="day">Day</button>
+      <button class="tab-btn" data-period="week">Week</button>
+      <button class="tab-btn" data-period="cycle">Cycle</button>
+    </div>
   </div>
-  <div id="dash-agent-filter"></div>
+  <div class="agent-filter-bar">
+    <select id="dash-agent-filter" style="max-width:240px;"></select>
+  </div>
   <div class="metrics" id="dash-metrics"></div>
   <div class="grid2">
-    <div class="card">
-      <div class="card-h">Daily trend — collections &amp; connect rate</div>
-      <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="card-h">Team pipeline — where it's breaking</div>
-      <div id="dash-funnel"></div>
-    </div>
-  </div>
-  <div class="grid3">
-    <div class="card">
-      <div class="card-h">🏆 Top performers</div>
-      <div id="dash-top"></div>
-    </div>
-    <div class="card">
-      <div class="card-h">📈 Most improved</div>
-      <div id="dash-improved"></div>
-    </div>
-    <div class="card">
-      <div class="card-h">🎯 Steady &amp; consistent</div>
-      <div id="dash-consistent"></div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-h">⚠ Needs focus this week</div>
-    <div id="dash-focus"></div>
-  </div>
-  <div class="card">
-    <div class="card-h">Leaderboard</div>
-    <div class="tabs" id="lb-tabs" style="margin-top:2px;">
-      <button class="tab-btn active" onclick="renderLeaderboard('amount',this)">Collections</button>
-      <button class="tab-btn" onclick="renderLeaderboard('connectRate',this)">Connect rate</button>
-      <button class="tab-btn" onclick="renderLeaderboard('calls',this)">Call attempts</button>
-      <button class="tab-btn" onclick="renderLeaderboard('connects',this)">Successful connects</button>
-    </div>
-    <div class="tbl-wrap" id="leaderboard-table"></div>
-  </div>
-</div>
-
-<!-- ============ IMPORT ============ -->
-<div class="section" id="section-import">
-  <div class="page-head"><h2>Import today's CSVs</h2><p>One file per metric. Pick the date, drop the file, review, import.</p></div>
-  <div class="tabs">
-    <button class="tab-btn active" onclick="setImportType('tasks',this)">Task attempts</button>
-    <button class="tab-btn" onclick="setImportType('calls',this)">Call attempts</button>
-    <button class="tab-btn" onclick="setImportType('connects',this)">Successful connects</button>
-    <button class="tab-btn" onclick="setImportType('collections',this)">Collections</button>
-  </div>
-  <div class="card">
-    <div class="card-h" id="import-card-title">Task attempts — hourly CSV</div>
-    <div class="form-group" style="max-width:220px;">
-      <label>Date this file covers</label>
-      <input type="date" id="import-date">
-    </div>
-    <div id="collections-mode-row" style="display:none;margin-bottom:12px;">
-      <label>This file's totals represent</label>
-      <select id="collections-mode">
-        <option value="cumulative">Cycle-to-date running total (default — most pivot exports)</option>
-        <option value="daily">Just today's collections</option>
-      </select>
-    </div>
-    <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file-input').click()"
-      ondragover="event.preventDefault();this.classList.add('drag')"
-      ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
-      <div class="ic">📂</div>
-      <p>Click to browse or drag &amp; drop the CSV</p>
-      <small id="import-format-hint">Format: Agent, 00, 01 … 23 (hourly columns)</small>
-    </div>
-    <input type="file" id="csv-file-input" accept=".csv" onchange="handleCsvFile(this.files[0])">
-    <div style="display:flex;gap:10px;align-items:center;">
-      <button class="btn btn-good" id="import-btn" onclick="commitImport()" disabled>Import this file</button>
-      <span class="small-muted" id="import-status"></span>
-    </div>
-  </div>
-  <div class="card" id="preview-card" style="display:none;">
-    <div class="card-h">Preview <span class="sub" id="preview-sub"></span></div>
-    <div class="tbl-wrap" id="preview-table"></div>
-  </div>
-  <div class="card">
-    <div class="card-h">Recent imports for this metric <span class="sub">Remove a day's CSV if it was uploaded wrong or twice</span></div>
-    <div class="tbl-wrap" id="recent-imports-table"><p class="small-muted">No imports yet for this metric.</p></div>
-  </div>
-</div>
-
-<!-- ============ AGENTS ============ -->
-<div class="section" id="section-agents">
-  <div class="page-head"><h2>Agent profiles</h2><p>Hour-by-hour behaviour, funnel, and what's driving their number.</p></div>
-  <div class="filter-row">
-    <label>Agent</label>
-    <select id="agent-select" onchange="renderAgentProfile()"><option value="">Select agent…</option></select>
-    <div class="tabs" style="margin:0;">
-      <button class="tab-btn active" data-scope="cycle" onclick="setAgentScope('cycle',this)">This cycle</button>
-      <button class="tab-btn" data-scope="week" onclick="setAgentScope('week',this)">This week</button>
-      <button class="tab-btn" data-scope="alltime" onclick="setAgentScope('alltime',this)">All time</button>
-    </div>
-  </div>
-  <div id="agent-profile-content"><p class="small-muted">Select an agent above.</p></div>
-</div>
-
-<!-- ============ TEAM ANALYSIS ============ -->
-<div class="section" id="section-team">
-  <div class="page-head"><h2>Team analysis</h2><p>Cross-agent comparison — hours, behaviour patterns, pipeline.</p></div>
-  <div id="team-agent-filter" class="card"></div>
-  <div class="card">
-    <div class="card-h">Connect rate by hour <span class="sub">1–3pm and the 8am partial hour are greyed out — they don't count against anyone</span></div>
-    <div class="tbl-wrap" id="team-heatmap"></div>
+    <div class="card"><div class="card-header">Collections Trend</div><canvas id="chart-collections-trend" height="180"></canvas></div>
+    <div class="card"><div class="card-header">Funnel by Stage (Team)</div><canvas id="chart-funnel" height="180"></canvas></div>
   </div>
   <div class="grid2">
-    <div class="card">
-      <div class="card-h">Behaviour flags across the floor</div>
-      <div id="team-flags"></div>
-    </div>
-    <div class="card">
-      <div class="card-h">Pipeline by agent</div>
-      <div class="chart-wrap"><canvas id="chart-pipeline"></canvas></div>
-    </div>
+    <div class="card"><div class="card-header">Hourly Activity (Team)</div><canvas id="chart-hourly" height="180"></canvas></div>
+    <div class="card"><div class="card-header">Success Rate by Agent</div><canvas id="chart-successrate" height="180"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-header">Leaderboard <span class="right muted" id="dash-leaderboard-range"></span></div>
+    <div class="tbl-wrap" id="dash-leaderboard"></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div class="card-header">&#127942; Celebrate This Week</div><div id="dash-celebrate"></div></div>
+    <div class="card"><div class="card-header">&#127919; Needs Focus</div><div id="dash-focus"></div></div>
   </div>
 </div>
 
-<!-- ============ DEBRIEF ============ -->
-<div class="section" id="section-debrief">
-  <div class="page-head"><h2>Debriefs</h2><p>Pick a day, week, or cycle. Copy straight into chat with each agent.</p></div>
-  <div class="card">
-    <div class="tabs">
-      <button class="tab-btn active" data-mode="day" onclick="setDebriefMode('day',this)">End of day</button>
-      <button class="tab-btn" data-mode="week" onclick="setDebriefMode('week',this)">Weekly</button>
-      <button class="tab-btn" data-mode="cycle" onclick="setDebriefMode('cycle',this)">Cycle</button>
-    </div>
-    <div class="filter-row" id="debrief-ref-row"></div>
-    <div class="filter-row">
-      <label>Tone</label>
-      <select id="debrief-tone">
-        <option value="warm">Warm &amp; human</option>
-        <option value="firm">Firm &amp; focused</option>
-        <option value="analytical">Analytical</option>
-      </select>
-      <button class="btn btn-good" onclick="generateDebrief()">✦ Generate debrief</button>
-      <button class="btn btn-sm" onclick="copyAllDebriefs()">Copy all</button>
+<!-- ============ PIPELINE ============ -->
+<div class="section" id="section-pipeline">
+  <div class="page-header">
+    <div><h2>Pipeline &amp; Breakage</h2><p>Where the funnel is leaking, team-wide and per agent</p></div>
+    <div class="row" style="align-items:center;">
+      <select id="pipeline-agent-filter" style="max-width:240px;"></select>
+      <div class="tabs" id="pipeline-period-tabs" style="margin-bottom:0;">
+        <button class="tab-btn active" data-period="day">Day</button>
+        <button class="tab-btn" data-period="week">Week</button>
+        <button class="tab-btn" data-period="cycle">Cycle</button>
+      </div>
     </div>
   </div>
-  <div id="debrief-team-card"></div>
-  <div id="debrief-output"></div>
+  <div class="card"><div class="card-header">Funnel</div><div id="pipeline-funnel"></div></div>
+  <div class="card"><div class="card-header">Where it's breaking</div><div id="pipeline-explain"></div></div>
+  <div class="card"><div class="card-header">Per-Agent Breakage Table</div><div class="tbl-wrap" id="pipeline-table"></div></div>
+</div>
+
+<!-- ============ AGENT PROFILE ============ -->
+<div class="section" id="section-agentprofile">
+  <div class="page-header">
+    <div><h2>Agent Profile</h2><p>Full picture: hours, strengths, weaknesses, trend, target</p></div>
+    <div class="row" style="align-items:center;">
+      <select id="agent-select" style="min-width:220px;"></select>
+      <div class="tabs" id="agentprofile-period-tabs" style="margin-bottom:0;">
+        <button class="tab-btn active" data-period="cycle">Cycle</button>
+        <button class="tab-btn" data-period="week">Week</button>
+        <button class="tab-btn" data-period="day">Day</button>
+      </div>
+    </div>
+  </div>
+  <div id="agent-profile-content"></div>
+</div>
+
+<!-- ============ CSV IMPORT ============ -->
+<div class="section" id="section-import">
+  <div class="page-header"><div><h2>CSV Import</h2><p>Upload the day's exports &mdash; only the 15 tracked agents are picked up</p></div></div>
+  <div class="card">
+    <div class="field" style="max-width:220px;"><label>Date this data is for</label><input type="date" id="import-date"></div>
+  </div>
+  <div class="tabs" id="import-tabs">
+    <button class="tab-btn active" data-metric="task">Task Attempts</button>
+    <button class="tab-btn" data-metric="call">Call Attempts</button>
+    <button class="tab-btn" data-metric="succ">Successful Connects</button>
+    <button class="tab-btn" data-metric="coll">Collections</button>
+  </div>
+  <div class="card">
+    <div class="card-header" id="import-slot-title">Task Attempts &mdash; hourly CSV (Agent, 00..23)</div>
+    <div class="dropzone" id="import-dropzone">
+      <div class="big">&#8593;</div>
+      <p>Click to browse, drag &amp; drop, or paste below</p>
+    </div>
+    <input type="file" id="import-file-input" accept=".csv" style="display:none;">
+    <div class="field" style="margin-top:12px;"><label>Or paste CSV</label><textarea id="import-paste" rows="4" placeholder="Paste CSV content here"></textarea></div>
+    <div class="row" style="margin-top:10px;">
+      <button class="btn btn-primary" id="import-parse-btn">Parse</button>
+      <span class="muted small" id="import-status"></span>
+    </div>
+    <div class="tbl-wrap" id="import-preview" style="margin-top:12px;"></div>
+  </div>
+  <div class="card">
+    <div class="card-header">Pending for this date <span class="right muted" id="import-pending-summary"></span></div>
+    <div id="import-pending-list"></div>
+    <button class="btn btn-green" id="import-save-btn" style="margin-top:10px;">Save Day</button>
+  </div>
+  <div class="card">
+    <div class="card-header">Already logged dates</div>
+    <div class="tbl-wrap" id="import-logged-dates"></div>
+  </div>
+</div>
+
+<!-- ============ REPORTS ============ -->
+<div class="section" id="section-reports">
+  <div class="page-header"><div><h2>Reports</h2><p>End of day, weekly, or full cycle &mdash; reference any period</p></div></div>
+  <div class="tabs" id="report-type-tabs">
+    <button class="tab-btn active" data-report="eod">End of Day</button>
+    <button class="tab-btn" data-report="weekly">Weekly</button>
+    <button class="tab-btn" data-report="cycle">Cycle</button>
+  </div>
+  <div class="card">
+    <div class="row" id="report-period-picker" style="align-items:flex-end;"></div>
+  </div>
+  <div id="report-output"></div>
+</div>
+
+<!-- ============ AGENTS / ROSTER ============ -->
+<div class="section" id="section-roster">
+  <div class="page-header"><div><h2>Agents</h2><p>Add, remove, and set per-agent targets</p></div></div>
+  <div class="card">
+    <div class="card-header">Add Agent</div>
+    <div class="row">
+      <div class="field" style="flex:1;min-width:200px;"><label>Full name (must match CSV exactly)</label><input type="text" id="roster-add-name" placeholder="e.g. Jane Doe"></div>
+      <div class="field" style="width:180px;"><label>Cycle target (UGX, optional)</label><input type="number" id="roster-add-target" step="100000" placeholder="Uses default"></div>
+      <button class="btn btn-green" id="roster-add-btn">Add Agent</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">Active Roster (<span id="roster-count">0</span>)</div>
+    <div class="tbl-wrap" id="roster-table"></div>
+  </div>
+  <div class="card">
+    <div class="card-header">Removed Agents</div>
+    <div id="roster-removed"></div>
+  </div>
 </div>
 
 <!-- ============ SETTINGS ============ -->
 <div class="section" id="section-settings">
-  <div class="page-head"><h2>Settings</h2></div>
+  <div class="page-header"><div><h2>Settings</h2><p>Cycle configuration, thresholds, and storage</p></div></div>
   <div class="grid2">
     <div class="card">
-      <div class="card-h">Cycle</div>
-      <div class="form-group"><label>Cycle start day (of month)</label>
-        <input type="number" id="set-cycle-start" min="1" max="28" style="max-width:100px;"></div>
-      <div class="form-group"><label>Team name</label><input type="text" id="set-team-name"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn" onclick="saveCycleSettings()">Save</button>
-        <button class="btn btn-danger" onclick="closeCurrentCycle()">Close current cycle</button>
+      <div class="card-header">Cycle Configuration</div>
+      <div class="field"><label>Cycle start day of month</label><input type="number" id="set-cycle-start-day" min="1" max="28"></div>
+      <div class="field"><label>Default target per agent (UGX / cycle)</label><input type="number" id="set-default-target" step="100000"></div>
+      <button class="btn btn-primary" id="save-cycle-settings-btn">Save</button>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="muted small" style="margin-bottom:8px;" id="current-cycle-info"></div>
+        <button class="btn btn-red" id="close-cycle-btn">Close Cycle &amp; Start New</button>
       </div>
-      <div id="cycle-history" style="margin-top:12px;"></div>
     </div>
     <div class="card">
-      <div class="card-h">Coaching threshold</div>
-      <p class="small-muted" style="margin-bottom:10px;">A pattern only counts as a strength or weakness once it shows up this many times out of the last N working days — everything else is a one-off, not a verdict.</p>
-      <div style="display:flex;gap:10px;">
-        <div class="form-group"><label>Flag if seen on</label><input type="number" id="set-threshold-days" min="1" max="10" style="max-width:90px;"></div>
-        <div class="form-group"><label>out of last N days</label><input type="number" id="set-threshold-window" min="1" max="14" style="max-width:90px;"></div>
-      </div>
-      <button class="btn" onclick="saveThresholdSettings()">Save</button>
+      <div class="card-header">Analysis Rules</div>
+      <div class="field"><label>Lunch / no-connect blackout hours (comma-separated, 24h)</label><input type="text" id="set-lunch-hours"></div>
+      <div class="field"><label>Rolling window for strength/weakness (working days)</label><input type="number" id="set-flag-window" min="2" max="14"></div>
+      <div class="field"><label>Repetitions needed to confirm a pattern</label><input type="number" id="set-flag-threshold" min="2" max="10"></div>
+      <button class="btn btn-primary" id="save-rules-btn">Save</button>
     </div>
   </div>
   <div class="card">
-    <div class="card-h">Agent roster <span class="sub">CSV rows for anyone not on this list are ignored on import</span></div>
-    <div id="agent-mgmt-list" style="margin-bottom:14px;"></div>
-    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-      <div class="form-group" style="margin-bottom:0;"><label>Full name</label>
-        <input type="text" id="new-agent-name" placeholder="As it appears in the CSV" style="width:220px;"></div>
-      <button class="btn btn-good" onclick="addAgentUI()">+ Add agent</button>
-    </div>
+    <div class="card-header">Cycle History</div>
+    <div class="tbl-wrap" id="cycle-history"></div>
   </div>
   <div class="card">
-    <div class="card-h">Sync &amp; account</div>
-    <div id="auth-box"></div>
-  </div>
-  <div class="card">
-    <div class="card-h">AI-assisted debriefs (optional)</div>
-    <div class="form-group"><label>Anthropic API key</label><input type="password" id="set-api-key" placeholder="sk-ant-…"></div>
-    <button class="btn" onclick="saveApiKey()">Save key</button>
-    <p class="small-muted" style="margin-top:8px;">Without a key, debriefs use the built-in template — still human, still specific to the numbers.</p>
-  </div>
-  <div class="card">
-    <div class="card-h">Data</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button class="btn" onclick="exportBackup()">⬇ Export backup (JSON)</button>
-      <button class="btn" onclick="document.getElementById('import-json').click()">⬆ Restore backup</button>
-      <button class="btn btn-danger" onclick="confirmWipe()">🗑 Wipe all data</button>
-      <input type="file" id="import-json" accept=".json" style="display:none;" onchange="restoreBackup(this)">
-    </div>
+    <div class="card-header">Storage</div>
+    <p class="small muted" id="storage-info">&mdash;</p>
   </div>
 </div>
 
-</div><!-- /main -->
-
+</div>
 <div class="toast" id="toast"></div>
-<div class="modal-bg" id="modal-bg"><div class="modal-box">
-  <p style="margin-bottom:16px;font-size:13px;" id="modal-msg">Are you sure?</p>
-  <div style="display:flex;gap:10px;"><button class="btn btn-danger" onclick="modalConfirm()">Confirm</button><button class="btn" onclick="modalClose()">Cancel</button></div>
-</div></div>
-
 <script>
-/* =========================================================================
-   AGENT TRACKER — single-file app. Firebase (shared, cross-device) with a
-   localStorage mirror so it still works offline / while Firebase loads.
-   ========================================================================= */
+// ===================== CORE LOGIC =====================
+// ===================== AGENTS TRACKER — CORE LOGIC =====================
+// Pure functions, no DOM. Testable under node, then embedded in the artifact.
 
-// ---------- Firebase (same project as the Deal Sealers R0 tracker) ----------
-const firebaseConfig = {
-  apiKey: "AIzaSyDD6AKCtYtZHBUNFIDeIW16sZhXYPju53Q",
-  authDomain: "deal-sealers-tracker.firebaseapp.com",
-  databaseURL: "https://deal-sealers-tracker-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "deal-sealers-tracker",
-};
-const ROOT = "agentTrackerV1"; // separate namespace from the existing R0 tracker's data
-let db = null, auth = null, isAdmin = false, firebaseUsable = true;
-try {
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.database();
-  auth = firebase.auth();
-} catch (e) { firebaseUsable = false; }
-
-const AGENT_SEED = [
-  "Elizabeth Akampurira","Mercy  Atusasiire","Babirye Violla","Angella Athieno","Anitah Nalugwa",
-  "Racheal  Nabyonga Kisakye","David Wasen","Natasha Nakiyaga","Oliver Natoolo","Birungi Nuwagaba",
-  "Patience Nyamwiza","Elizabeth Kemigisa","Flavia Nangonzi","Gloria Nahirya","Emily Namara"
+const ROSTER_SEED = [
+  "Elizabeth Akampurira",
+  "Mercy Atusasiire",
+  "Babirye Violla",
+  "Angella Athieno",
+  "Anitah Nalugwa",
+  "Racheal Nabyonga Kisakye",
+  "David Wasen",
+  "Natasha Nakiyaga",
+  "Oliver Natoolo",
+  "Birungi Nuwagaba",
+  "Patience Nyamwiza",
+  "Elizabeth Kemigisa",
+  "Flavia Nangonzi",
+  "Gloria Nahirya",
+  "Emily Namara"
 ];
 
-const DEFAULT_SETTINGS = {
-  cycleStartDay: 11, teamName: "Deal Sealers", thresholdDays: 3, thresholdWindow: 5,
-  excludedHours: [8,13,14], lunchHours: [13,14], partialHours: [8], apiKey: ""
-};
-
-let state = {
-  roster: [],                     // [{name, addedAt, removed}]
-  settings: { ...DEFAULT_SETTINGS },
-  hourly: { tasks:{}, calls:{}, connects:{} },   // hourly[metric][date][agentKey] = [24 nums]
-  collectionsSnapshot: {},        // [date][agentKey] = cumulative total
-  collectionsDaily: {},           // [date][agentKey] = that day's amount (explicit)
-  cycles: {},                     // [code] = {startDate,endDate,closed,closedAt}
-  filter: { dashboard: [], team: [] }
-};
-
-let pendingImport = null, importType = "tasks", dashScope = "cycle", agentScope = "cycle";
-let hasUnsyncedChanges = false; // true whenever a dbWrite failed to reach Firebase
-let debriefMode = "day";
-let lastDebriefText = { team: "", agents: {} };
-let chartTrend=null, chartAgentTrend=null, chartPipeline=null;
-let modalCb = null;
-
-// ---------- generic helpers ----------
-function norm(s){ return (s||"").replace(/\s+/g,' ').trim().toLowerCase(); }
-function keySafe(s){ return (s||"").replace(/[.#$\[\]\/\s]/g,'_'); }
-function fmtUGX(n){
-  n = n||0;
-  const sign = n<0 ? '-' : '';
-  n = Math.abs(n);
-  if (n>=1e9) return sign+'UGX '+(n/1e9).toFixed(2)+'B';
-  if (n>=1e6) return sign+'UGX '+(n/1e6).toFixed(1)+'M';
-  if (n>=1e3) return sign+'UGX '+(n/1e3).toFixed(0)+'K';
-  return sign+'UGX '+Math.round(n).toLocaleString();
-}
-function pct(n){ return (isFinite(n)?n:0).toFixed(1)+'%'; }
-function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function addDays(dateStr,n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n);
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function dateDiffDays(a,b){ return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/86400000); }
-function showToast(msg,type){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show '+(type||'');
-  setTimeout(()=>{t.className='toast';},3200); }
-function firstName(n){ return (n||'').trim().split(/\s+/)[0]; }
-function activeAgents(){ return state.roster.filter(a=>!a.removed).map(a=>a.name); }
-function agentExists(name){ return state.roster.some(a=>a.name===name && !a.removed); }
-
-// ---------- persistence ----------
-function saveLocal(){ try{ localStorage.setItem('agentTrackerV1', JSON.stringify(state)); }catch(e){} }
-function loadLocal(){
-  try{
-    const raw = localStorage.getItem('agentTrackerV1');
-    if (raw){
-      const s = JSON.parse(raw);
-      state = { ...state, ...s, settings:{...DEFAULT_SETTINGS, ...(s.settings||{})} };
-    }
-  }catch(e){}
-  if (!state.roster.length){
-    state.roster = AGENT_SEED.map((n,i)=>({name:n, addedAt:Date.now()+i, removed:false}));
-  }
+function normName(s) {
+  return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function setSyncPill(ok,msg){
-  const el = document.getElementById('sync-pill');
-  el.className = 'sync-pill '+(ok?'ok':'bad');
-  el.innerHTML = '<span class="sync-dot"></span> '+msg;
+function defaultSettings() {
+  return {
+    cycleStartDay: 11,
+    defaultTarget: 6000000,
+    lunchHours: [13, 14],
+    workHours: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    partialHour: 8,
+    flagWindow: 5,
+    flagThreshold: 3
+  };
 }
 
-async function dbWrite(path, value){
-  saveLocal();
-  if (!db) { setSyncPill(false,'Local only — Firebase unavailable'); hasUnsyncedChanges = true; return false; }
-  try{
-    await db.ref(ROOT+'/'+path).set(value);
-    setSyncPill(true, isAdmin ? 'Synced across devices' : 'Synced (view-only until sign-in)');
-    return true;
-  }catch(err){
-    setSyncPill(false, 'NOT synced — saved on this device only');
-    hasUnsyncedChanges = true;
-    renderUnsyncedBanner();
-    return false;
-  }
-}
-async function retrySync(){
-  if (!db) { showToast('Firebase unavailable — cannot sync','error'); return; }
-  try{
-    await db.ref(ROOT).set(state);
-    hasUnsyncedChanges = false;
-    setSyncPill(true, isAdmin ? 'Synced across devices' : 'Synced (view-only until sign-in)');
-    renderUnsyncedBanner();
-    showToast('Synced','success');
-  }catch(err){
-    setSyncPill(false, 'NOT synced — saved on this device only');
-    showToast('Sync failed — check sign-in / Firebase rules','error');
-  }
-}
-function renderUnsyncedBanner(){
-  const el = document.getElementById('unsynced-banner');
-  if (!el) return;
-  el.style.display = hasUnsyncedChanges ? 'block' : 'none';
+function defaultState() {
+  const today = new Date();
+  return {
+    roster: ROSTER_SEED.map(name => ({ name, target: null, active: true })),
+    settings: defaultSettings(),
+    cycles: [seedCycleFor(fmtDate(today), defaultSettings().cycleStartDay)],
+    daily: {}
+  };
 }
 
-async function loadFromFirebase(){
-  if (!db) { setSyncPill(false,'Local only — Firebase unavailable'); return; }
-  if (hasUnsyncedChanges){
-    // A previous write on this device never reached Firebase. Pulling the remote
-    // snapshot now would silently overwrite that unsynced local data and it would
-    // be gone. Refuse to pull until the user resolves it (sign in + retry sync).
-    setSyncPill(false, 'NOT synced — local changes pending, refresh skipped to protect them');
-    renderUnsyncedBanner();
-    renderEverything();
-    return;
-  }
-  try{
-    const snap = await db.ref(ROOT).once('value');
-    if (snap.exists()){
-      const remote = snap.val();
-      state.roster = remote.roster || state.roster;
-      state.settings = { ...DEFAULT_SETTINGS, ...(remote.settings||{}) };
-      state.hourly = remote.hourly || state.hourly;
-      state.collectionsSnapshot = remote.collectionsSnapshot || state.collectionsSnapshot;
-      state.collectionsDaily = remote.collectionsDaily || state.collectionsDaily;
-      state.cycles = remote.cycles || state.cycles;
-      saveLocal();
-      setSyncPill(true, 'Synced across devices');
-    } else {
-      setSyncPill(true, 'Connected — no cloud data yet');
-      await dbWrite('', state); // seed it
-    }
-  }catch(err){
-    setSyncPill(false, 'Local only — sign in (Settings) to sync');
-  }
-  renderEverything();
+// ---------- date helpers ----------
+function fmtDate(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
-
-function renderAuthBox(){
-  const box = document.getElementById('auth-box');
-  if (isAdmin){
-    box.innerHTML = `<p class="small-muted" style="margin-bottom:10px;">Signed in — writes sync to every device that opens this file.</p>
-      <button class="btn btn-sm" onclick="doSignOut()">Sign out</button>`;
-  } else {
-    box.innerHTML = `<p class="small-muted" style="margin-bottom:10px;">Sign in with the same account used for the R0 tracker so changes here sync everywhere. Without signing in, data still saves to this device.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-        <input type="email" id="auth-email" placeholder="Email" style="width:190px;">
-        <input type="password" id="auth-pw" placeholder="Password" style="width:150px;">
-        <button class="btn btn-sm" onclick="doSignIn()">Sign in</button>
-      </div><div id="auth-err" style="color:var(--bad);font-size:11px;"></div>`;
-  }
+function parseDate(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
-async function doSignIn(){
-  const email = document.getElementById('auth-email').value.trim();
-  const pw = document.getElementById('auth-pw').value;
-  try{ await auth.signInWithEmailAndPassword(email, pw); }
-  catch(err){ document.getElementById('auth-err').textContent = err.message || 'Sign-in failed'; }
+function addDays(dateStr, n) {
+  const d = parseDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return fmtDate(d);
 }
-async function doSignOut(){ if(auth) await auth.signOut(); }
-if (auth){
-  auth.onAuthStateChanged(user=>{ isAdmin = !!user; renderAuthBox();
-    setSyncPill(true, isAdmin?'Synced across devices':'Synced (view-only until sign-in)'); });
+function dayOfWeekMonFirst(dateStr) {
+  const d = parseDate(dateStr).getDay(); // 0=Sun
+  return d === 0 ? 6 : d - 1; // 0=Mon..6=Sun
 }
-
-// ---------- cycle logic (11th–10th, same as PulseTrack) ----------
-function cycleStartFor(dateStr){
-  const d = new Date(dateStr+'T00:00:00');
-  const sd = state.settings.cycleStartDay || 11;
-  let y=d.getFullYear(), m=d.getMonth();
-  if (d.getDate() < sd) { m -= 1; if(m<0){m=11;y-=1;} }
-  const start = new Date(y,m,sd);
-  return start.getFullYear()+'-'+String(start.getMonth()+1).padStart(2,'0')+'-'+String(start.getDate()).padStart(2,'0');
+function isoWeekStart(dateStr) {
+  return addDays(dateStr, -dayOfWeekMonFirst(dateStr));
 }
-function cycleEndFor(startDateStr){
-  const s = new Date(startDateStr+'T00:00:00');
-  const end = new Date(s.getFullYear(), s.getMonth()+1, (state.settings.cycleStartDay||11)-1);
-  return end.getFullYear()+'-'+String(end.getMonth()+1).padStart(2,'0')+'-'+String(end.getDate()).padStart(2,'0');
+function isoWeekEnd(dateStr) {
+  return addDays(isoWeekStart(dateStr), 6);
 }
-function cycleCodeFor(startDateStr){ return startDateStr.slice(0,4)+startDateStr.slice(5,7); }
-function currentCycleStart(){ return cycleStartFor(todayStr()); }
-function ensureCycleRegistered(dateStr){
-  const start = cycleStartFor(dateStr), end = cycleEndFor(start), code = cycleCodeFor(start);
-  if (!state.cycles[code]) state.cycles[code] = { startDate:start, endDate:end, closed:false };
+function cycleStartDateFor(refDateStr, cycleStartDay) {
+  const ref = parseDate(refDateStr);
+  const y = ref.getFullYear(), m = ref.getMonth(), d = ref.getDate();
+  let startY = y, startM = m;
+  if (d < cycleStartDay) { startM -= 1; if (startM < 0) { startM = 11; startY -= 1; } }
+  const start = new Date(startY, startM, cycleStartDay);
+  return fmtDate(start);
 }
-function weekRangeFor(dateStr){
-  const d = new Date(dateStr+'T00:00:00');
-  const dow = (d.getDay()+6)%7; // 0=Mon
-  const mon = addDays(dateStr, -dow);
-  const sun = addDays(mon, 6);
-  return {start:mon, end:sun};
+function cycleEndDateFor(startDateStr, cycleStartDay) {
+  const s = parseDate(startDateStr);
+  const end = new Date(s.getFullYear(), s.getMonth() + 1, cycleStartDay - 1);
+  return fmtDate(end);
 }
-function updateCycleBadge(){
-  const start = currentCycleStart(), end = cycleEndFor(start);
-  const dayNum = dateDiffDays(start, todayStr())+1;
-  const totalDays = dateDiffDays(start,end)+1;
-  const fmt = s => { const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}); };
-  document.getElementById('cycle-label').textContent = fmt(start)+' – '+fmt(end);
-  document.getElementById('cycle-day-label').textContent = 'Day '+Math.max(1,dayNum)+' of '+totalDays+(state.cycles[cycleCodeFor(start)]?.closed?' · closed':'');
+function seedCycleFor(refDateStr, cycleStartDay) {
+  const start = cycleStartDateFor(refDateStr, cycleStartDay);
+  return { id: start, start, end: null };
 }
 
 // ---------- CSV parsing ----------
-function parseHourlyCsv(text){
-  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length);
-  const out = {}; let rows=0;
-  for (let i=0;i<lines.length;i++){
-    const parts = lines[i].split(',').map(p=>p.trim().replace(/^"|"$/g,''));
-    if (parts.length < 2) continue;
-    const name = parts[0];
-    if (!name || /^agent$|^consultant$|^name$|^\s*$/i.test(name)) continue;
-    const vals = parts.slice(1,25).map(v=>{
-      const clean = v.replace(/,/g,'');
-      if (!clean || clean==='-') return 0;
-      const n = parseFloat(clean); return isNaN(n)?0:n;
-    });
-    while (vals.length < 24) vals.push(0);
-    out[name] = vals.slice(0,24);
-    rows++;
-  }
-  return {data:out, rows};
+function splitCsvLine(line) {
+  // simple splitter with basic quote stripping (no embedded commas expected in these exports)
+  return line.split(",").map(p => p.trim().replace(/^"|"$/g, ""));
 }
-function parseTotalsCsv(text){
-  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length);
-  const out = {}; let rows=0;
-  for (const line of lines){
-    const m = line.match(/^(.*?),\s*"?[^0-9\-]*(-?[\d,]+(?:\.\d+)?)"?\s*$/);
-    if (!m) continue;
-    let name = m[1].trim();
-    if (/^(consultant|agent|name)$/i.test(name)) continue;
-    const val = parseFloat(m[2].replace(/,/g,''));
-    if (isNaN(val)) continue;
-    out[name] = val; rows++;
-  }
-  return {data:out, rows};
+
+function buildRosterIndex(roster) {
+  const idx = {};
+  roster.forEach(a => { idx[normName(a.name)] = a.name; });
+  return idx;
 }
-function matchToRoster(parsedMap){
-  const matched = {}, unmatchedAgents = [], ignoredCsvNames = [];
-  const used = new Set();
-  activeAgents().forEach(full=>{
-    const key = norm(full);
-    if (parsedMap[Object.keys(parsedMap).find(k=>norm(k)===key)] !== undefined){
-      const origKey = Object.keys(parsedMap).find(k=>norm(k)===key);
-      matched[full] = parsedMap[origKey]; used.add(origKey);
-    } else {
-      unmatchedAgents.push(full);
+
+// Hourly grid CSV: header row (blank,00,01,...,23), then AgentName,val00,val01,...
+function parseHourlyCsv(text, roster) {
+  const idx = buildRosterIndex(roster);
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length);
+  const result = {}; // normName -> [24]
+  const unmatched = new Set();
+  let matchedRows = 0, totalRows = 0;
+  lines.forEach((line, i) => {
+    const parts = splitCsvLine(line);
+    if (!parts.length) return;
+    const first = parts[0];
+    // header detection: first cell blank OR second cell is "00"
+    if (i === 0 && (first === "" || parts[1] === "00")) return;
+    if (!first) return;
+    totalRows++;
+    const canonical = idx[normName(first)];
+    if (!canonical) { unmatched.add(first); return; }
+    matchedRows++;
+    const hours = new Array(24).fill(0);
+    for (let h = 0; h < 24; h++) {
+      const raw = parts[h + 1];
+      const v = (raw === undefined || raw === "-" || raw === "") ? 0 : parseFloat(raw.replace(/,/g, ""));
+      hours[h] = isNaN(v) ? 0 : v;
     }
+    result[canonical] = hours;
   });
-  Object.keys(parsedMap).forEach(k=>{ if(!used.has(k)) ignoredCsvNames.push(k); });
-  return { matched, unmatchedAgents, ignoredCsvNames };
+  return { data: result, unmatched: Array.from(unmatched), matchedRows, totalRows };
 }
 
-// ---------- import UI wiring ----------
-function setImportType(type, btn){
-  importType = type;
-  document.querySelectorAll('#section-import .tabs .tab-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  const titles = {tasks:'Task attempts — hourly CSV', calls:'Call attempts — hourly CSV',
-    connects:'Successful connects — hourly CSV', collections:'Collections — Consultant, Total'};
-  document.getElementById('import-card-title').textContent = titles[type];
-  document.getElementById('collections-mode-row').style.display = type==='collections' ? 'block':'none';
-  document.getElementById('import-format-hint').textContent = type==='collections'
-    ? 'Format: Consultant, Total' : 'Format: Agent, 00, 01 … 23 (hourly columns)';
-  pendingImport = null;
-  document.getElementById('preview-card').style.display='none';
-  document.getElementById('import-btn').disabled = true;
-  document.getElementById('import-status').textContent = '';
-  renderRecentImports();
-}
-function renderRecentImports(){
-  const el = document.getElementById('recent-imports-table');
-  if (!el) return;
-  let rows = [];
-  if (importType === 'collections'){
-    const snapDates = Object.keys(state.collectionsSnapshot||{}).map(d=>({date:d, mode:'cumulative'}));
-    const dailyDates = Object.keys(state.collectionsDaily||{}).map(d=>({date:d, mode:'daily'}));
-    rows = [...snapDates, ...dailyDates];
-  } else {
-    rows = Object.keys(state.hourly[importType]||{}).map(d=>({date:d, mode:null}));
-  }
-  rows.sort((a,b)=> b.date.localeCompare(a.date));
-  if (!rows.length){ el.innerHTML = '<p class="small-muted">No imports yet for this metric.</p>'; return; }
-  el.innerHTML = `<table><thead><tr><th>Date</th><th>Mode</th><th>Agents in file</th><th></th></tr></thead><tbody>` +
-    rows.map(r=>{
-      const count = importType==='collections'
-        ? Object.keys((r.mode==='daily'?state.collectionsDaily:state.collectionsSnapshot)[r.date]||{}).length
-        : Object.keys(state.hourly[importType][r.date]||{}).length;
-      return `<tr><td>${r.date}</td><td>${r.mode||'—'}</td><td>${count}</td>
-        <td><button class="btn btn-sm btn-danger" onclick="deleteImport('${importType}','${r.date}',${r.mode?`'${r.mode}'`:null})">Remove</button></td></tr>`;
-    }).join('') + `</tbody></table>`;
-}
-async function deleteImport(type, date, mode){
-  const label = mode ? `${type} (${mode}) for ${date}` : `${type} for ${date}`;
-  document.getElementById('modal-msg').textContent = `Remove the imported CSV data — ${label}? This can't be undone.`;
-  modalCb = async () => {
-    let ok;
-    if (type === 'collections'){
-      const store = mode === 'daily' ? state.collectionsDaily : state.collectionsSnapshot;
-      delete store[date];
-      ok = await dbWrite('collections'+(mode==='daily'?'Daily':'Snapshot')+'/'+date, null);
-    } else {
-      delete state.hourly[type][date];
-      ok = await dbWrite('hourly/'+type+'/'+date, null);
-    }
-    showToast(ok ? 'Removed '+label : 'Removed locally — NOT synced (retry sync in the banner above)', ok?'success':'error');
-    renderRecentImports();
-    renderEverything();
-  };
-  document.getElementById('modal-bg').classList.add('show');
-}
-function handleDrop(e){ e.preventDefault(); document.getElementById('dropzone').classList.remove('drag');
-  const f=e.dataTransfer.files[0]; if(f) handleCsvFile(f); }
-function handleCsvFile(file){
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e => processCsvText(e.target.result);
-  reader.readAsText(file);
-}
-function processCsvText(text){
-  const isHourly = importType !== 'collections';
-  const parsed = isHourly ? parseHourlyCsv(text) : parseTotalsCsv(text);
-  if (!parsed.rows){ showToast('No valid rows found in that CSV','error'); return; }
-  const {matched, unmatchedAgents, ignoredCsvNames} = matchToRoster(parsed.data);
-  pendingImport = { matched, unmatchedAgents, ignoredCsvNames, isHourly };
-
-  let rows = '';
-  if (isHourly){
-    rows = Object.entries(matched).map(([name,vals])=>{
-      const tot = vals.reduce((a,b)=>a+b,0);
-      return `<tr><td class="name-cell">${name}</td><td>${tot.toLocaleString()}</td></tr>`;
-    }).join('');
-    document.getElementById('preview-table').innerHTML =
-      `<table><thead><tr><th>Agent</th><th>Daily total</th></tr></thead><tbody>${rows||'<tr><td colspan=2>No matches</td></tr>'}</tbody></table>`;
-  } else {
-    rows = Object.entries(matched).map(([name,val])=>
-      `<tr><td class="name-cell">${name}</td><td>${fmtUGX(val)}</td></tr>`).join('');
-    document.getElementById('preview-table').innerHTML =
-      `<table><thead><tr><th>Agent</th><th>Total in file</th></tr></thead><tbody>${rows||'<tr><td colspan=2>No matches</td></tr>'}</tbody></table>`;
-  }
-  let note = `${Object.keys(matched).length} of ${activeAgents().length} roster agents found.`;
-  if (unmatchedAgents.length) note += ` No row for: ${unmatchedAgents.join(', ')}.`;
-  if (ignoredCsvNames.length) note += ` Ignored (not on roster): ${ignoredCsvNames.slice(0,8).join(', ')}${ignoredCsvNames.length>8?'…':''}.`;
-  document.getElementById('preview-sub').textContent = note;
-  document.getElementById('preview-card').style.display='block';
-  document.getElementById('import-btn').disabled = false;
-  document.getElementById('import-status').textContent = 'Ready to import';
-  showToast('CSV parsed — review and import', 'success');
-}
-async function commitImport(){
-  if (!pendingImport) return;
-  const date = document.getElementById('import-date').value || todayStr();
-  ensureCycleRegistered(date);
-  let ok = true;
-  if (importType === 'collections'){
-    const mode = document.getElementById('collections-mode').value;
-    const store = mode==='daily' ? state.collectionsDaily : state.collectionsSnapshot;
-    store[date] = store[date] || {};
-    Object.entries(pendingImport.matched).forEach(([name,val])=>{ store[date][keySafe(name)] = val; });
-    ok = await dbWrite('collections'+(mode==='daily'?'Daily':'Snapshot')+'/'+date, store[date]);
-  } else {
-    state.hourly[importType][date] = state.hourly[importType][date] || {};
-    Object.entries(pendingImport.matched).forEach(([name,vals])=>{ state.hourly[importType][date][keySafe(name)] = vals; });
-    ok = await dbWrite('hourly/'+importType+'/'+date, state.hourly[importType][date]);
-  }
-  await dbWrite('cycles/'+cycleCodeFor(cycleStartFor(date)), state.cycles[cycleCodeFor(cycleStartFor(date))]);
-  if (ok) showToast('Imported for '+date+' — synced', 'success');
-  else showToast('Imported for '+date+' — SAVED LOCALLY ONLY, not synced (sign in & retry sync in Settings)', 'error');
-  pendingImport = null;
-  document.getElementById('import-btn').disabled = true;
-  document.getElementById('preview-card').style.display='none';
-  document.getElementById('import-status').textContent = '';
-  document.getElementById('csv-file-input').value = '';
-  renderEverything();
-  renderRecentImports();
+// Collections CSV: Consultant,Total (cumulative-to-date-in-cycle)
+function parseCollectionsCsv(text, roster) {
+  const idx = buildRosterIndex(roster);
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length);
+  const result = {};
+  const unmatched = new Set();
+  let matchedRows = 0, totalRows = 0;
+  lines.forEach((line, i) => {
+    const parts = splitCsvLine(line);
+    if (parts.length < 2) return;
+    const [name, totalStr] = parts;
+    if (!name) return;
+    if (i === 0 && normName(name) === "consultant") return;
+    totalRows++;
+    const canonical = idx[normName(name)];
+    if (!canonical) { unmatched.add(name); return; }
+    matchedRows++;
+    const v = parseFloat(String(totalStr).replace(/,/g, ""));
+    result[canonical] = isNaN(v) ? 0 : v;
+  });
+  return { data: result, unmatched: Array.from(unmatched), matchedRows, totalRows };
 }
 
-// ---------- computation core ----------
-function hourlySum(metric, date, name){
-  const arr = (state.hourly[metric][date]||{})[keySafe(name)];
-  if (!arr) return null;
-  return arr.reduce((a,b)=>a+b,0);
+// ---------- state accessors ----------
+function sumArr(a) { return (a || []).reduce((x, y) => x + y, 0); }
+
+function getDayRecord(state, date) {
+  return state.daily[date];
 }
-function hourlyArr(metric, date, name){
-  return (state.hourly[metric][date]||{})[keySafe(name)] || null;
-}
-function hasAnyDataOn(date, name){
-  return hourlyArr('calls',date,name)!==null || hourlyArr('tasks',date,name)!==null ||
-         hourlyArr('connects',date,name)!==null || state.collectionsSnapshot[date]?.[keySafe(name)]!==undefined ||
-         state.collectionsDaily[date]?.[keySafe(name)]!==undefined;
-}
-function allDatesWithData(){
-  const set = new Set();
-  ['tasks','calls','connects'].forEach(m=>Object.keys(state.hourly[m]).forEach(d=>set.add(d)));
-  Object.keys(state.collectionsSnapshot).forEach(d=>set.add(d));
-  Object.keys(state.collectionsDaily).forEach(d=>set.add(d));
-  return Array.from(set).sort();
-}
-function dailyCollected(name, date){
-  const k = keySafe(name);
-  if (state.collectionsDaily[date]?.[k] !== undefined) return state.collectionsDaily[date][k];
-  if (state.collectionsSnapshot[date]?.[k] === undefined) return null;
-  const cur = state.collectionsSnapshot[date][k];
-  const cycleStart = cycleStartFor(date);
-  const priorDates = Object.keys(state.collectionsSnapshot)
-    .filter(d => d < date && d >= cycleStart && state.collectionsSnapshot[d]?.[k] !== undefined)
+
+function loggedDatesInRange(state, startDate, endDate) {
+  return Object.keys(state.daily)
+    .filter(d => d >= startDate && d <= endDate)
     .sort();
-  if (!priorDates.length) return cur;
-  const prevDate = priorDates[priorDates.length-1];
-  return cur - state.collectionsSnapshot[prevDate][k];
-}
-function dailyTotals(name, date){
-  const tasks = hourlySum('tasks',date,name) || 0;
-  const calls = hourlySum('calls',date,name) || 0;
-  const connects = hourlySum('connects',date,name) || 0;
-  const collectedRaw = dailyCollected(name,date);
-  const collected = collectedRaw===null ? 0 : collectedRaw;
-  const hasData = hasAnyDataOn(date,name);
-  return { tasks, calls, connects, collected, hasData,
-    connectRate: calls>0 ? connects/calls*100 : 0,
-    perConnect: connects>0 ? collected/connects : 0,
-    callToTask: tasks>0 ? calls/tasks : (calls>0?1:0) };
-}
-function rangeTotals(name, startDate, endDate){
-  let tasks=0,calls=0,connects=0,collected=0,daysWithData=0;
-  let d = startDate;
-  while (d <= endDate){
-    const t = dailyTotals(name,d);
-    if (t.hasData){ tasks+=t.tasks; calls+=t.calls; connects+=t.connects; collected+=t.collected; daysWithData++; }
-    d = addDays(d,1);
-  }
-  return { tasks, calls, connects, collected, daysWithData,
-    connectRate: calls>0 ? connects/calls*100 : 0,
-    perConnect: connects>0 ? collected/connects : 0,
-    callToTask: tasks>0 ? calls/tasks : 0 };
-}
-function scopeRange(scope, refDate){
-  refDate = refDate || todayStr();
-  if (scope==='cycle') return { start: currentCycleStart(), end: refDate };
-  if (scope==='week') { const w = weekRangeFor(refDate); return { start:w.start, end: refDate<w.end?refDate:w.end }; }
-  if (scope==='yesterday') { const y = addDays(refDate,-1); return { start:y, end:y }; }
-  if (scope==='alltime') { const all = allDatesWithData(); return { start: all[0]||refDate, end: refDate }; }
-  return { start: refDate, end: refDate };
-}
-function teamAverages(agents, startDate, endDate){
-  const rows = agents.map(a=>rangeTotals(a,startDate,endDate)).filter(r=>r.daysWithData>0);
-  if (!rows.length) return { calls:0,connects:0,connectRate:0,collected:0,perConnect:0,callToTask:0,tasks:0 };
-  const sum = f => rows.reduce((a,r)=>a+f(r),0)/rows.length;
-  return { calls:sum(r=>r.calls), connects:sum(r=>r.connects), tasks:sum(r=>r.tasks),
-    connectRate:sum(r=>r.connectRate), collected:sum(r=>r.collected), perConnect:sum(r=>r.perConnect),
-    callToTask:sum(r=>r.callToTask) };
-}
-function lastNWorkingDays(n, endDate){
-  const dates = allDatesWithData().filter(d=>d<=endDate);
-  return dates.slice(-n);
 }
 
-// Behaviour + performance flags, computed with the "X of last Y days" repetition rule.
-function computeFlags(name, endDate){
-  const N = state.settings.thresholdWindow || 5;
-  const need = state.settings.thresholdDays || 3;
-  const days = lastNWorkingDays(N, endDate).filter(d=>hasAnyDataOn(d,name));
-  const counts = { overDialer:0, taskSkimmer:0, softTalker:0, strongCloser:0,
-    highConnect:0, lowConnect:0, highVolume:0, lowVolume:0, considered:0 };
-  const collectedSeries = [];
-  days.forEach(d=>{
-    const agents = activeAgents().filter(a=>hasAnyDataOn(d,a));
-    if (agents.length < 2) return;
-    const avg = teamAverages(agents, d, d);
-    const me = dailyTotals(name, d);
-    if (!me.hasData) return;
-    counts.considered++;
-    collectedSeries.push(me.collected);
-    if (me.calls > avg.calls*1.2 && me.connectRate < avg.connectRate*0.8) counts.overDialer++;
-    if (me.tasks>0 && me.callToTask < 0.6) counts.taskSkimmer++;
-    if (me.connects >= avg.connects*0.8 && avg.perConnect>0 && me.perConnect < avg.perConnect*0.6) counts.softTalker++;
-    if (avg.perConnect>0 && me.perConnect > avg.perConnect*1.3 && me.connects>0) counts.strongCloser++;
-    if (avg.connectRate>0 && me.connectRate > avg.connectRate*1.15) counts.highConnect++;
-    if (avg.connectRate>0 && me.connectRate < avg.connectRate*0.85) counts.lowConnect++;
-    if (avg.calls>0 && me.calls > avg.calls*1.15) counts.highVolume++;
-    if (avg.calls>0 && me.calls < avg.calls*0.85) counts.lowVolume++;
-  });
-  const mean = collectedSeries.length ? collectedSeries.reduce((a,b)=>a+b,0)/collectedSeries.length : 0;
-  const variance = collectedSeries.length>1 ? collectedSeries.reduce((a,b)=>a+(b-mean)**2,0)/collectedSeries.length : 0;
-  const cv = mean>0 ? Math.sqrt(variance)/mean : 99;
-  const consistent = collectedSeries.length>=need && cv < 0.4 && mean > 0;
-  const flag = (key) => counts[key] >= need && counts.considered>0;
-  return { counts, consistent, cv, daysConsidered: counts.considered, need, window:N,
-    flags: {
-      overDialer: flag('overDialer'), taskSkimmer: flag('taskSkimmer'), softTalker: flag('softTalker'),
-      strongCloser: flag('strongCloser'), highConnect: flag('highConnect'), lowConnect: flag('lowConnect'),
-      highVolume: flag('highVolume'), lowVolume: flag('lowVolume')
-    }
+function cycleForDate(state, date) {
+  // cycles sorted by start ascending; find containing, else fall back to computed
+  const sorted = [...state.cycles].sort((a, b) => a.start.localeCompare(b.start));
+  for (const c of sorted) {
+    if (date >= c.start && (c.end === null || date <= c.end)) return c;
+  }
+  // fallback: compute
+  const start = cycleStartDateFor(date, state.settings.cycleStartDay);
+  return { id: start, start, end: cycleEndDateFor(start, state.settings.cycleStartDay) };
+}
+
+// cumulative collections figure logged for agent on/at date (exact date only)
+function cumOn(state, agent, date) {
+  const rec = state.daily[date];
+  if (!rec || !rec.collectionsCumulative) return undefined;
+  return rec.collectionsCumulative[agent];
+}
+
+// delta collections for agent for a specific date, scoped to the cycle containing that date
+function dailyCollections(state, agent, date) {
+  const cyc = cycleForDate(state, date);
+  const cur = cumOn(state, agent, date);
+  if (cur === undefined) return null; // not logged that day
+  const priorDates = loggedDatesInRange(state, cyc.start, addDays(date, -1))
+    .filter(d => cumOn(state, agent, d) !== undefined);
+  if (!priorDates.length) return cur; // baseline day in this cycle
+  const prevDate = priorDates[priorDates.length - 1];
+  const prev = cumOn(state, agent, prevDate);
+  return cur - prev;
+}
+
+// cycle-to-date collections total (as of `date`, within date's cycle) = latest cumulative logged <= date
+function cycleToDateCollections(state, agent, date) {
+  const cyc = cycleForDate(state, date);
+  const dates = loggedDatesInRange(state, cyc.start, date).filter(d => cumOn(state, agent, d) !== undefined);
+  if (!dates.length) return 0;
+  return cumOn(state, agent, dates[dates.length - 1]) || 0;
+}
+
+function dayStats(state, agent, date) {
+  const rec = state.daily[date];
+  const m = (rec && rec.metrics && rec.metrics[agent]) || {};
+  const task = m.task || new Array(24).fill(0);
+  const call = m.call || new Array(24).fill(0);
+  const succ = m.succ || new Array(24).fill(0);
+  const totalTask = sumArr(task), totalCall = sumArr(call), totalSucc = sumArr(succ);
+  const collections = dailyCollections(state, agent, date);
+  const logged = !!(rec && ((rec.metrics && rec.metrics[agent]) || (rec.collectionsCumulative && rec.collectionsCumulative[agent] !== undefined)));
+  return {
+    agent, date, task, call, succ, totalTask, totalCall, totalSucc,
+    collections,
+    dialRate: totalTask ? (totalCall / totalTask) * 100 : 0,      // task -> call conversion
+    successRate: totalCall ? (totalSucc / totalCall) * 100 : 0,   // call -> successful connect
+    collPerSucc: totalSucc ? (collections || 0) / totalSucc : 0,  // value per successful connect
+    collPerCall: totalCall ? (collections || 0) / totalCall : 0,
+    logged
   };
 }
 
-// ---------- hour heatmap (excludes lunch + partial hour from "weak" judgement) ----------
-const HOUR_COLS = ['08','09','10','11','12','13','14','15','16','17'];
-function hourConnectRate(agents, dates, hourIdx){
-  let calls=0, connects=0;
-  agents.forEach(a=>dates.forEach(d=>{
-    const c = hourlyArr('calls',d,a), cn = hourlyArr('connects',d,a);
-    if (c) calls += c[hourIdx]||0;
-    if (cn) connects += cn[hourIdx]||0;
-  }));
-  return calls>0 ? connects/calls*100 : null;
+function rangeStats(state, agent, dates) {
+  const task = new Array(24).fill(0), call = new Array(24).fill(0), succ = new Array(24).fill(0);
+  let collections = 0, daysWithColl = 0;
+  dates.forEach(date => {
+    const s = dayStats(state, agent, date);
+    for (let h = 0; h < 24; h++) { task[h] += s.task[h]; call[h] += s.call[h]; succ[h] += s.succ[h]; }
+    if (s.collections !== null) { collections += s.collections; daysWithColl++; }
+  });
+  const totalTask = sumArr(task), totalCall = sumArr(call), totalSucc = sumArr(succ);
+  return {
+    agent, dates, task, call, succ, totalTask, totalCall, totalSucc, collections,
+    dialRate: totalTask ? (totalCall / totalTask) * 100 : 0,
+    successRate: totalCall ? (totalSucc / totalCall) * 100 : 0,
+    collPerSucc: totalSucc ? collections / totalSucc : 0,
+    collPerCall: totalCall ? collections / totalCall : 0,
+    daysWithColl
+  };
 }
 
-// ---------- funnel ----------
-function funnelHtml(totals, prefix){
-  const {tasks,calls,connects,collected} = totals;
-  const c1 = calls>0? calls/Math.max(tasks,calls,1)*100 : 0;
-  const stages = [
-    {lbl:'Task attempts', val:tasks, w:100, grad:'linear-gradient(90deg,#5c6478,#3a4152)'},
-    {lbl:'Call attempts', val:calls, w: tasks>0?Math.max(6,calls/tasks*100):(calls>0?100:0), grad:'linear-gradient(90deg,#5b8fe1,#7c5cfc)', p: tasks>0? calls/tasks*100 : null},
-    {lbl:'Successful connects', val:connects, w: calls>0?Math.max(4,connects/calls*100):0, grad:'linear-gradient(90deg,#4fbe8a,#1dc9a0)', p: calls>0? connects/calls*100 : null},
-    {lbl:'Collections', val: fmtUGX(collected), w: connects>0?Math.max(3, Math.min(100, (collected/(connects*50000))*100)) : (collected>0?15:0), grad:'linear-gradient(90deg,#e8a33d,#d9662b)'}
-  ];
-  let html = '<div class="funnel">' + stages.map(s=>`
-    <div class="funnel-step">
-      <div class="funnel-lbl">${s.lbl}</div>
-      <div class="funnel-bar" style="width:${s.w}%;background:${s.grad};">${typeof s.val==='number'?s.val.toLocaleString():s.val}${s.p!=null?`<span class="funnel-pct">${s.p.toFixed(1)}%</span>`:''}</div>
-    </div>`).join('') + '</div>';
-  // find biggest relative drop to call out where it's breaking
-  const dropCallConnect = calls>0 ? (1 - connects/calls) : 0;
-  const dropTaskCall = tasks>0 ? (1 - calls/tasks) : 0;
-  let breakMsg = '';
-  if (tasks>0 && dropTaskCall > 0.5 && dropTaskCall > dropCallConnect) breakMsg = `The biggest drop is between tasks logged and calls actually made — ${(dropTaskCall*100).toFixed(0)}% of tasks aren't being dialled.`;
-  else if (calls>0 && dropCallConnect > 0.7) breakMsg = `The biggest drop is between dialling and connecting — ${(dropCallConnect*100).toFixed(0)}% of calls never reach the client (this is normal-ish, but watch the trend).`;
-  if (breakMsg) html += `<div class="break-note">⚠ ${breakMsg}</div>`;
-  return html;
+// ---------- hour analysis ----------
+function hourLabel(h) {
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  const suf = h < 12 ? "am" : "pm";
+  const next = (h + 1) % 24;
+  const nh = next % 12 === 0 ? 12 : next % 12;
+  const nsuf = next < 12 ? "am" : "pm";
+  return `${hh}${suf}\u2013${nh}${nsuf}`;
 }
 
-// ================= NAV =================
-function showSection(id){
-  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active', a.dataset.section===id));
-  document.getElementById('section-'+id).classList.add('active');
-  if (id==='dashboard') renderDashboard();
-  if (id==='agents') renderAgentSelect();
-  if (id==='team') renderTeam();
-  if (id==='debrief') renderDebriefRefRow();
-  if (id==='settings') renderSettings();
-  if (id==='import') renderRecentImports();
+function strongWeakHours(hourArr, settings) {
+  const work = settings.workHours;
+  const candidates = work
+    .map(h => ({ h, v: hourArr[h] || 0 }))
+    .filter(x => !settings.lunchHours.includes(x.h));
+  if (!candidates.length) return { strongest: null, weakest: null };
+  const nonZero = candidates.filter(x => x.v > 0);
+  const pool = nonZero.length ? nonZero : candidates;
+  let strongest = pool[0], weakest = candidates[0];
+  pool.forEach(x => { if (x.v > strongest.v) strongest = x; });
+  candidates.forEach(x => { if (x.v < weakest.v) weakest = x; });
+  return { strongest, weakest };
 }
 
-// ================= DASHBOARD =================
-function setDashScope(s, btn){
-  dashScope = s;
-  document.querySelectorAll('#section-dashboard .tabs .tab-btn[data-scope]').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  renderDashboard();
-}
-function renderAgentFilterChips(containerId, filterKey){
-  const container = document.getElementById(containerId);
-  const sel = state.filter[filterKey] || [];
-  container.innerHTML = '<div class="chip-row">' + activeAgents().map(a=>{
-    const on = !sel.length || sel.includes(a);
-    return `<label class="chip ${sel.length && !sel.includes(a)?'':'active'}">
-      <input type="checkbox" ${sel.length?(sel.includes(a)?'checked':''):'checked'} onchange="toggleFilterChip('${filterKey}','${a.replace(/'/g,"\\'")}',this.checked)">
-      ${firstName(a)}</label>`;
-  }).join('') + `<button class="btn btn-sm" onclick="clearFilter('${filterKey}')">All</button></div>`;
-}
-function toggleFilterChip(key, name, checked){
-  let sel = state.filter[key] || [];
-  if (!sel.length) sel = activeAgents().slice();
-  if (checked){ if(!sel.includes(name)) sel.push(name); }
-  else { sel = sel.filter(n=>n!==name); }
-  if (sel.length === activeAgents().length) sel = [];
-  state.filter[key] = sel;
-  key==='dashboard' ? renderDashboard() : renderTeam();
-}
-function clearFilter(key){ state.filter[key]=[]; key==='dashboard'?renderDashboard():renderTeam(); }
-function filteredAgents(key){
-  const sel = state.filter[key]||[];
-  return sel.length ? sel.filter(a=>agentExists(a)) : activeAgents();
+// ---------- median / benchmark helpers ----------
+function median(nums) {
+  const a = nums.filter(n => n !== null && n !== undefined && !isNaN(n)).sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
 }
 
-function renderDashboard(){
+function teamBenchmarksForDate(state, roster, date) {
+  const agents = roster.filter(a => a.active).map(a => a.name);
+  const stats = agents.map(a => dayStats(state, a, date)).filter(s => s.totalCall > 0);
+  return {
+    medianSuccessRate: median(stats.map(s => s.successRate)),
+    medianDialRate: median(stats.map(s => s.dialRate)),
+    medianCollPerSucc: median(stats.map(s => s.collPerSucc)),
+    medianCall: median(stats.map(s => s.totalCall)),
+    medianTask: median(stats.map(s => s.totalTask))
+  };
+}
+
+// ---------- pattern flags (day-level booleans) ----------
+function dayFlags(s, bench) {
+  const flags = {};
+  if (!s.totalCall) return flags;
+  flags.overdialing = s.totalCall > bench.medianCall * 1.3 && s.successRate < bench.medianSuccessRate * 0.7 && bench.medianCall > 0;
+  flags.skimmingTasks = s.totalTask > bench.medianTask * 1.2 && s.dialRate < 60 && bench.medianTask > 0;
+  flags.talkingNotClosing = s.totalSucc > 0 && s.successRate >= bench.medianSuccessRate * 0.9 && s.collPerSucc < bench.medianCollPerSucc * 0.6 && bench.medianCollPerSucc > 0;
+  flags.strongConnectRate = s.successRate >= bench.medianSuccessRate * 1.15 && bench.medianSuccessRate > 0;
+  flags.strongCloser = s.collPerSucc >= bench.medianCollPerSucc * 1.3 && bench.medianCollPerSucc > 0;
+  flags.lowVolume = bench.medianCall > 0 && s.totalCall < bench.medianCall * 0.6;
+  flags.highVolume = bench.medianCall > 0 && s.totalCall > bench.medianCall * 1.3;
+  return flags;
+}
+
+// Rolling pattern detection: only call it a strength/weakness if it recurs
+// on >= flagThreshold of the last flagWindow working days.
+function agentPatternSummary(state, roster, agent, asOfDate) {
+  const cyc = cycleForDate(state, asOfDate);
+  const window = state.settings.flagWindow;
+  const threshold = state.settings.flagThreshold;
+  const dates = loggedDatesInRange(state, cyc.start, asOfDate).slice(-window);
+  const keys = ["overdialing", "skimmingTasks", "talkingNotClosing", "strongConnectRate", "strongCloser", "lowVolume", "highVolume"];
+  const counts = {}; keys.forEach(k => counts[k] = 0);
+  let daysCounted = 0;
+  dates.forEach(date => {
+    const s = dayStats(state, agent, date);
+    if (!s.totalCall) return;
+    daysCounted++;
+    const bench = teamBenchmarksForDate(state, roster, date);
+    const f = dayFlags(s, bench);
+    keys.forEach(k => { if (f[k]) counts[k]++; });
+  });
+  const confirmed = keys.filter(k => counts[k] >= threshold);
+  const emerging = keys.filter(k => counts[k] > 0 && counts[k] < threshold);
+  return { counts, confirmed, emerging, daysCounted, windowDates: dates };
+}
+
+
+// ===================== STORAGE LAYER =====================
+let STATE = defaultState();
+let dbNs = null;
+let usingDb = false;
+let dailyUnsub = null;
+let metaUnsub = [];
+const LS_KEY = 'agents-tracker-state-v1';
+
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast'; }, 2600);
+}
+
+function setSyncStatus(mode, text) {
+  const dot = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-text');
+  dot.className = 'sync-dot' + (mode === 'ok' ? ' ok' : mode === 'local' ? ' local' : '');
+  label.textContent = text;
+}
+
+function saveLocal() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(STATE)); } catch (e) { /* ignore quota errors */ }
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+async function initStorage() {
+  try {
+    dbNs = await window.claude.use('db');
+  } catch (e) { dbNs = null; }
+
+  if (!dbNs) {
+    usingDb = false;
+    const local = loadLocal();
+    if (local) STATE = Object.assign(defaultState(), local);
+    setSyncStatus('local', 'Saved to this browser only');
+    afterStateLoaded();
+    return;
+  }
+
+  usingDb = true;
+  setSyncStatus('', 'Syncing…');
+  try {
+    // load meta docs once, then subscribe for live cross-device sync
+    const [rosterSnap, settingsSnap, cyclesSnap] = await Promise.all([
+      dbNs.doc('meta/roster').get(),
+      dbNs.doc('meta/settings').get(),
+      dbNs.doc('meta/cycles').get()
+    ]);
+    if (rosterSnap.exists && rosterSnap.data().agents) STATE.roster = rosterSnap.data().agents;
+    if (settingsSnap.exists) STATE.settings = Object.assign(defaultSettings(), settingsSnap.data());
+    if (cyclesSnap.exists && cyclesSnap.data().cycles) STATE.cycles = cyclesSnap.data().cycles;
+
+    if (!rosterSnap.exists) await dbNs.doc('meta/roster').set({ agents: STATE.roster });
+    if (!settingsSnap.exists) await dbNs.doc('meta/settings').set(STATE.settings);
+    if (!cyclesSnap.exists) await dbNs.doc('meta/cycles').set({ cycles: STATE.cycles });
+
+    const dailySnap = await dbNs.collection('daily').get();
+    STATE.daily = {};
+    dailySnap.docs.forEach(d => { STATE.daily[d.id] = d.data(); });
+
+    setSyncStatus('ok', 'Synced — shared across devices');
+
+    dailyUnsub = dbNs.collection('daily').onSnapshot(snap => {
+      const fresh = {};
+      snap.docs.forEach(d => { fresh[d.id] = d.data(); });
+      STATE.daily = fresh;
+      renderAll();
+    }, err => { setSyncStatus('local', 'Sync lost — working offline'); });
+
+    metaUnsub.push(dbNs.doc('meta/roster').onSnapshot(snap => {
+      if (snap.exists && snap.data().agents) { STATE.roster = snap.data().agents; renderAll(); }
+    }));
+    metaUnsub.push(dbNs.doc('meta/settings').onSnapshot(snap => {
+      if (snap.exists) { STATE.settings = Object.assign(defaultSettings(), snap.data()); renderAll(); }
+    }));
+    metaUnsub.push(dbNs.doc('meta/cycles').onSnapshot(snap => {
+      if (snap.exists && snap.data().cycles) { STATE.cycles = snap.data().cycles; renderAll(); }
+    }));
+  } catch (e) {
+    usingDb = false;
+    const local = loadLocal();
+    if (local) STATE = Object.assign(defaultState(), local);
+    setSyncStatus('local', 'Sync unavailable — saved to this browser only');
+  }
+  afterStateLoaded();
+}
+
+async function persistDay(date, dayRecord) {
+  STATE.daily[date] = dayRecord;
+  saveLocal();
+  if (usingDb) {
+    try { await dbNs.collection('daily').doc(date).set(dayRecord); }
+    catch (e) { toast('Could not sync to shared storage — saved locally', 'error'); }
+  }
+}
+async function persistRoster() {
+  saveLocal();
+  if (usingDb) { try { await dbNs.doc('meta/roster').set({ agents: STATE.roster }); } catch (e) { toast('Sync failed for roster', 'error'); } }
+}
+async function persistSettings() {
+  saveLocal();
+  if (usingDb) { try { await dbNs.doc('meta/settings').set(STATE.settings); } catch (e) { toast('Sync failed for settings', 'error'); } }
+}
+async function persistCycles() {
+  saveLocal();
+  if (usingDb) { try { await dbNs.doc('meta/cycles').set({ cycles: STATE.cycles }); } catch (e) { toast('Sync failed for cycles', 'error'); } }
+}
+
+// ===================== SHARED HELPERS =====================
+function fmtUGX(n) {
+  n = Math.round(n || 0);
+  return 'UGX ' + n.toLocaleString('en-US');
+}
+function fmtNum(n) { return Math.round(n || 0).toLocaleString('en-US'); }
+function fmtPct(n) { return (isFinite(n) ? n : 0).toFixed(1) + '%'; }
+function activeRoster() { return STATE.roster.filter(a => a.active); }
+function activeNames() { return activeRoster().map(a => a.name); }
+function targetFor(name) {
+  const a = STATE.roster.find(x => x.name === name);
+  if (a && a.target !== null && a.target !== undefined && a.target !== '') return Number(a.target);
+  return STATE.settings.defaultTarget;
+}
+function currentCycle() {
+  const today = fmtDate(new Date());
+  return cycleForDate(STATE, today);
+}
+function cycleEndOrToday(cyc) {
+  return cyc.end || fmtDate(new Date());
+}
+function todayStr() { return fmtDate(new Date()); }
+function firstName(n) { return (n || '').trim().split(' ')[0]; }
+
+function datesForPeriod(period, refDate) {
+  refDate = refDate || todayStr();
+  if (period === 'day') return [refDate];
+  if (period === 'week') {
+    const start = isoWeekStart(refDate), end = refDate < isoWeekEnd(refDate) ? refDate : isoWeekEnd(refDate);
+    return loggedDatesInRange(STATE, start, end).length ? enumerateDates(start, end) : enumerateDates(start, end);
+  }
+  if (period === 'cycle') {
+    const cyc = cycleForDate(STATE, refDate);
+    return enumerateDates(cyc.start, refDate < cycleEndOrToday(cyc) ? refDate : cycleEndOrToday(cyc));
+  }
+  return [refDate];
+}
+function enumerateDates(start, end) {
+  const out = [];
+  let d = start;
+  let guard = 0;
+  while (d <= end && guard < 400) { out.push(d); d = addDays(d, 1); guard++; }
+  return out;
+}
+function loggedDates(dates) { return dates.filter(d => STATE.daily[d]); }
+
+function periodLabel(period, refDate) {
+  refDate = refDate || todayStr();
+  if (period === 'day') return refDate;
+  if (period === 'week') return isoWeekStart(refDate) + ' \u2192 ' + isoWeekEnd(refDate);
+  if (period === 'cycle') { const c = cycleForDate(STATE, refDate); return c.start + ' \u2192 ' + (c.end || 'now'); }
+  return refDate;
+}
+
+function populateAgentSelect(sel, includeAll) {
+  const cur = sel.value;
+  sel.innerHTML = (includeAll ? '<option value="__all__">All Agents</option>' : '') +
+    activeRoster().map(a => `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`).join('');
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function copyText(text, label) {
+  navigator.clipboard.writeText(text).then(() => toast((label || 'Copied') + ' to clipboard', 'success'))
+    .catch(() => toast('Could not copy — select and copy manually', 'error'));
+}
+
+function updateCycleBadge() {
+  const cyc = currentCycle();
+  document.getElementById('cycle-label').textContent = cyc.start + ' \u2192 ' + (cyc.end || 'open');
+  const today = todayStr();
+  const dayNum = Math.min(400, enumerateDates(cyc.start, today < cycleEndOrToday(cyc) ? today : cycleEndOrToday(cyc)).length);
+  const totalDays = enumerateDates(cyc.start, cycleEndDateFor(cyc.start, STATE.settings.cycleStartDay)).length;
+  document.getElementById('cycle-day-label').textContent = `Day ${dayNum} of ${totalDays}`;
+}
+
+// ===================== NAVIGATION =====================
+let activeSection = 'debrief';
+function showSection(id) {
+  activeSection = id;
+  document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === 'section-' + id));
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.section === id));
+  renderSection(id);
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const a = e.target.closest('a[data-section]');
+  if (a) showSection(a.dataset.section);
+});
+
+function renderSection(id) {
+  if (id === 'debrief') renderDebrief();
+  else if (id === 'dashboard') renderDashboard();
+  else if (id === 'pipeline') renderPipeline();
+  else if (id === 'agentprofile') renderAgentProfile();
+  else if (id === 'import') renderImport();
+  else if (id === 'reports') renderReports();
+  else if (id === 'roster') renderRoster();
+  else if (id === 'settings') renderSettings();
+}
+
+function renderAll() {
   updateCycleBadge();
-  renderAgentFilterChips('dash-agent-filter','dashboard');
-  const agents = filteredAgents('dashboard');
-  const range = scopeRange(dashScope);
-  const totals = agents.map(a=>rangeTotals(a,range.start,range.end));
-  const grand = totals.reduce((acc,t)=>({tasks:acc.tasks+t.tasks,calls:acc.calls+t.calls,connects:acc.connects+t.connects,collected:acc.collected+t.collected}),{tasks:0,calls:0,connects:0,collected:0});
-  const cRate = grand.calls>0 ? grand.connects/grand.calls*100 : 0;
+  renderSection(activeSection);
+}
 
-  const labelMap = {cycle:'this cycle so far',week:'this week so far',yesterday:'yesterday',alltime:'all time on record'};
-  document.getElementById('dash-sub').textContent = `${labelMap[dashScope]} · ${agents.length} agent${agents.length!==1?'s':''}`;
+// ===================== NARRATIVE / FEEDBACK ENGINE =====================
+const WEAKNESS_KEYS = ['overdialing', 'skimmingTasks', 'talkingNotClosing', 'lowVolume'];
+const STRENGTH_KEYS = ['strongConnectRate', 'strongCloser', 'highVolume'];
+
+const FLAG_TEXT = {
+  overdialing: {
+    weakness: s => `Dialing hard \u2014 ${fmtNum(s.totalCall)} call attempts \u2014 but connects aren't following: success rate is ${fmtPct(s.successRate)}, well under the team's pace. Reads like speed over precision.`,
+    ask: `Slow down and work the list with intent. A shorter, better-picked list beats a long thin one.`
+  },
+  skimmingTasks: {
+    weakness: s => `Moving through a lot of accounts (${fmtNum(s.totalTask)} task attempts) but only turning ${fmtPct(s.dialRate)} of them into an actual dial \u2014 accounts are being opened and skipped rather than called.`,
+    ask: `Match task attempts to call attempts \u2014 open an account, call it, then move on.`
+  },
+  talkingNotClosing: {
+    weakness: s => `Getting people on the phone \u2014 success rate ${fmtPct(s.successRate)} \u2014 but the value per successful connect (${fmtUGX(s.collPerSucc)}) is below the team's median. Conversations are happening but they're not firm enough to convert into payment.`,
+    ask: `Tighten the ask on every connect \u2014 a specific amount and a specific date, every time, not a soft promise.`
+  },
+  lowVolume: {
+    weakness: s => `Call attempts (${fmtNum(s.totalCall)}) are running below the team's typical volume.`,
+    ask: `Push attempt volume up \u2014 more dials means more shots at a connect.`
+  },
+  strongConnectRate: { strength: s => `Connect rate is strong at ${fmtPct(s.successRate)}, well above the team's pace.` },
+  strongCloser: { strength: s => `Every successful connect is converting well \u2014 averaging ${fmtUGX(s.collPerSucc)} per connect, above the team median.` },
+  highVolume: { strength: s => `Strong attempt volume \u2014 ${fmtNum(s.totalCall)} calls, above the team's typical pace.` }
+};
+
+function hourNoteText(s) {
+  const sw = strongWeakHours(s.succ, STATE.settings);
+  if (!sw.strongest) return 'Not enough hourly data yet to call a strongest or weakest hour.';
+  let out = `Strongest hour: <b>${hourLabel(sw.strongest.h)}</b> with ${sw.strongest.v} successful connect${sw.strongest.v === 1 ? '' : 's'}. `;
+  if (sw.weakest.v === 0) {
+    out += sw.weakest.h === STATE.settings.partialHour
+      ? `Quietest working hour: <b>${hourLabel(sw.weakest.h)}</b> \u2014 expected, that's only the ~15 minutes before the day gets going.`
+      : `Quietest working hour: <b>${hourLabel(sw.weakest.h)}</b> \u2014 no successful connects logged there.`;
+  } else {
+    out += `Lightest hour: <b>${hourLabel(sw.weakest.h)}</b> with ${sw.weakest.v} successful connect${sw.weakest.v === 1 ? '' : 's'}.`;
+  }
+  out += ` <span class="muted">(1pm\u20133pm isn't counted here \u2014 that's the Arrangements/Balance Transfer block, where connects naturally go quiet for everyone.)</span>`;
+  return out;
+}
+
+function cycleProgressFor(agent, date) {
+  const cyc = cycleForDate(STATE, date);
+  const cycleToDate = cycleToDateCollections(STATE, agent, date);
+  const target = targetFor(agent);
+  const pct = target ? (cycleToDate / target * 100) : 0;
+  const totalCycleDays = enumerateDates(cyc.start, cycleEndDateFor(cyc.start, STATE.settings.cycleStartDay)).length;
+  const daysElapsed = enumerateDates(cyc.start, date).length;
+  const daysLeft = Math.max(0, totalCycleDays - daysElapsed);
+  const remaining = Math.max(0, target - cycleToDate);
+  const paceNeeded = daysLeft > 0 ? remaining / daysLeft : remaining;
+  const projected = daysElapsed > 0 ? (cycleToDate / daysElapsed) * totalCycleDays : 0;
+  return { cyc, cycleToDate, target, pct, daysLeft, remaining, paceNeeded, projected, totalCycleDays, daysElapsed };
+}
+
+function agentDebrief(agent, date) {
+  const s = dayStats(STATE, agent, date);
+  const bench = teamBenchmarksForDate(STATE, activeRoster(), date);
+  const pattern = agentPatternSummary(STATE, activeRoster(), agent, date);
+  const prog = cycleProgressFor(agent, date);
+
+  const strengths = [], needs = [], emerging = [];
+  pattern.confirmed.forEach(k => {
+    const def = FLAG_TEXT[k];
+    if (!def) return;
+    if (def.strength) strengths.push(def.strength(s));
+    if (def.weakness) needs.push({ text: def.weakness(s), ask: def.ask });
+  });
+  pattern.emerging.forEach(k => {
+    const def = FLAG_TEXT[k];
+    if (!def) return;
+    const txt = def.weakness ? def.weakness(s) : (def.strength ? def.strength(s) : null);
+    if (txt) emerging.push(`Showing up ${pattern.counts[k]} of the last ${pattern.windowDates.length} working days \u2014 not yet a confirmed pattern: ${txt}`);
+  });
+  if (!strengths.length && s.logged && s.totalCall > 0) {
+    strengths.push(`Showed up and put in the work \u2014 ${fmtNum(s.totalCall)} call attempts, ${fmtNum(s.totalSucc)} successful connects today.`);
+  }
+
+  const statusWord = prog.pct >= 100 ? 'ahead of target' : prog.pct >= 75 ? 'on pace' : prog.pct >= 40 ? 'behind pace' : 'well behind pace';
+
+  return { agent, date, s, bench, pattern, prog, strengths, needs, emerging, statusWord };
+}
+
+function agentDebriefText(d) {
+  const lines = [];
+  lines.push(`${d.agent} \u2014 ${d.date}`);
+  lines.push('');
+  if (!d.s.logged) {
+    lines.push(`No activity logged for ${d.agent} on ${d.date} yet.`);
+    return lines.join('\n');
+  }
+  if (d.strengths.length) {
+    d.strengths.forEach(t => lines.push(`You're doing this: ${t}`));
+  }
+  if (d.needs.length) {
+    d.needs.forEach(n => lines.push(`I need this: ${n.text} ${n.ask}`));
+  }
+  lines.push('');
+  lines.push(hourNoteText(d.s).replace(/<\/?b>/g, '').replace(/<span class="muted">|<\/span>/g, ''));
+  lines.push('');
+  lines.push(`Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.`);
+  lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left \u2014 need about ${fmtUGX(d.prog.paceNeeded)}/day to hit target.`);
+  if (d.emerging.length) {
+    lines.push('');
+    d.emerging.forEach(t => lines.push(`Watching: ${t}`));
+  }
+  lines.push('');
+  const focus = d.needs.length ? d.needs[0].ask : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
+  lines.push(`Today's focus: ${focus}`);
+  return lines.join('\n');
+}
+
+// ===================== RENDER: DEBRIEF =====================
+function renderDebrief() {
+  const dateEl = document.getElementById('debrief-date');
+  if (!dateEl.value) dateEl.value = todayStr();
+  const date = dateEl.value;
+  document.getElementById('debrief-subtitle').textContent = `Human, copy-paste-ready feedback for each agent \u2014 ${date}`;
+
+  const filterSel = document.getElementById('debrief-agent-filter');
+  populateAgentSelect(filterSel, true);
+  const filterVal = filterSel.value || '__all__';
+
+  // team summary
+  const names = activeNames();
+  const dayList = names.map(n => dayStats(STATE, n, date));
+  const loggedList = dayList.filter(x => x.logged);
+  const totalTask = loggedList.reduce((a, x) => a + x.totalTask, 0);
+  const totalCall = loggedList.reduce((a, x) => a + x.totalCall, 0);
+  const totalSucc = loggedList.reduce((a, x) => a + x.totalSucc, 0);
+  const totalColl = loggedList.reduce((a, x) => a + (x.collections || 0), 0);
+  const top = loggedList.slice().sort((a, b) => (b.collections || 0) - (a.collections || 0))[0];
+
+  const flaggedAgents = names.map(n => ({ n, p: agentPatternSummary(STATE, activeRoster(), n, date) }))
+    .filter(x => x.p.confirmed.some(k => WEAKNESS_KEYS.includes(k)));
+
+  document.getElementById('debrief-team-summary').innerHTML = `
+    <div class="metrics">
+      <div class="metric"><div class="mlabel">Agents Logged</div><div class="mval">${loggedList.length}/${names.length}</div></div>
+      <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(totalTask)}</div></div>
+      <div class="metric"><div class="mlabel">Call Attempts</div><div class="mval">${fmtNum(totalCall)}</div></div>
+      <div class="metric"><div class="mlabel">Successful Connects</div><div class="mval">${fmtNum(totalSucc)}</div></div>
+      <div class="metric good"><div class="mlabel">Collections</div><div class="mval">${fmtUGX(totalColl)}</div></div>
+    </div>
+    <div class="card" style="background:var(--bg3);">
+      <div class="card-header">Team read for ${date}</div>
+      <div class="debrief-body">${teamDayNarrative(date, top, totalCall, totalSucc, flaggedAgents)}</div>
+    </div>`;
+
+  // individual debriefs
+  const container = document.getElementById('debrief-agents');
+  const showNames = filterVal === '__all__' ? names : [filterVal];
+  container.innerHTML = showNames.map(n => {
+    const d = agentDebrief(n, date);
+    const tagsHtml = [
+      ...d.pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k)).map(() => `<span class="pill pill-green">Strength</span>`).slice(0, 1),
+      ...d.pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k)).map(() => `<span class="pill pill-red">Needs Coaching</span>`).slice(0, 1),
+      `<span class="pill ${d.prog.pct >= 75 ? 'pill-green' : d.prog.pct >= 40 ? 'pill-amber' : 'pill-red'}">${d.prog.pct.toFixed(0)}% of target</span>`
+    ].join('');
+    const bodyHtml = [
+      !d.s.logged ? `<span class="muted">No activity logged for ${escapeHtml(n)} on ${date} yet.</span>` : null,
+      ...d.strengths.map(t => `<div class="you-line">You're doing this: ${escapeHtml(t)}</div>`),
+      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)}</div>`),
+      d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
+      d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
+      d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. Pace needed: ${fmtUGX(d.prog.paceNeeded)}/day for the ${d.prog.daysLeft} day(s) left.</div>` : null,
+      d.emerging.length ? `<div style="margin-top:8px;" class="muted small">${d.emerging.map(escapeHtml).join('<br>')}</div>` : null
+    ].filter(Boolean).join('');
+
+    return `<div class="debrief-card">
+      <div class="dc-head"><div class="dc-name">${escapeHtml(n)}</div><div class="dc-tags">${tagsHtml}</div></div>
+      <div class="debrief-body">${bodyHtml}</div>
+      <div class="copy-line"><button class="btn btn-sm" data-copy-debrief="${escapeHtml(n)}">Copy Feedback</button></div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('[data-copy-debrief]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = btn.dataset.copyDebrief;
+      const d = agentDebrief(n, date);
+      copyText(agentDebriefText(d), n + "'s feedback");
+    });
+  });
+}
+
+function teamDayNarrative(date, top, totalCall, totalSucc, flaggedAgents) {
+  const parts = [];
+  if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading the day with ${fmtUGX(top.collections || 0)} collected.`);
+  const rate = totalCall ? (totalSucc / totalCall * 100) : 0;
+  parts.push(`Team connect rate for the day is ${fmtPct(rate)}.`);
+  if (flaggedAgents.length) {
+    parts.push(`${flaggedAgents.length} agent${flaggedAgents.length === 1 ? '' : 's'} showing a confirmed coaching pattern this week: ${flaggedAgents.map(x => escapeHtml(x.n)).join(', ')} \u2014 see their cards below for the specific ask.`);
+  } else {
+    parts.push(`No agent has a confirmed coaching flag right now \u2014 patterns need to repeat across a few days before they're called, so keep an eye on the "Watching" notes below.`);
+  }
+  return parts.join(' ');
+}
+
+document.getElementById('debrief-refresh-btn').addEventListener('click', renderDebrief);
+document.getElementById('debrief-agent-filter').addEventListener('change', renderDebrief);
+document.getElementById('debrief-date').addEventListener('change', renderDebrief);
+document.getElementById('debrief-copy-all-btn').addEventListener('click', () => {
+  const date = document.getElementById('debrief-date').value || todayStr();
+  const names = activeNames();
+  const text = names.map(n => agentDebriefText(agentDebrief(n, date))).join('\n\n' + '-'.repeat(40) + '\n\n');
+  copyText(text, 'Full team debrief');
+});
+
+// ===================== RENDER: TEAM DASHBOARD =====================
+let dashPeriod = 'day';
+let chartInstances = {};
+function destroyChart(key) { if (chartInstances[key]) { chartInstances[key].destroy(); delete chartInstances[key]; } }
+
+document.getElementById('dash-period-tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab-btn'); if (!b) return;
+  document.querySelectorAll('#dash-period-tabs .tab-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); dashPeriod = b.dataset.period; renderDashboard();
+});
+document.getElementById('dash-agent-filter').addEventListener('change', renderDashboard);
+
+function renderDashboard() {
+  const sel = document.getElementById('dash-agent-filter');
+  populateAgentSelect(sel, true);
+  const filterVal = sel.value || '__all__';
+  const ref = todayStr();
+  const dates = loggedDates(datesForPeriod(dashPeriod, ref));
+  const names = filterVal === '__all__' ? activeNames() : [filterVal];
+
+  const perAgent = names.map(n => rangeStats(STATE, n, dates));
+  const totalTask = perAgent.reduce((a, x) => a + x.totalTask, 0);
+  const totalCall = perAgent.reduce((a, x) => a + x.totalCall, 0);
+  const totalSucc = perAgent.reduce((a, x) => a + x.totalSucc, 0);
+  const totalColl = perAgent.reduce((a, x) => a + x.collections, 0);
 
   document.getElementById('dash-metrics').innerHTML = `
-    <div class="metric"><div class="ml">Task attempts</div><div class="mv">${grand.tasks.toLocaleString()}</div></div>
-    <div class="metric"><div class="ml">Call attempts</div><div class="mv">${grand.calls.toLocaleString()}</div></div>
-    <div class="metric"><div class="ml">Successful connects</div><div class="mv">${grand.connects.toLocaleString()}</div></div>
-    <div class="metric"><div class="ml">Connect rate</div><div class="mv" style="color:var(--good)">${pct(cRate)}</div></div>
-    <div class="metric"><div class="ml">Collections</div><div class="mv" style="font-size:16px;">${fmtUGX(grand.collected)}</div></div>`;
+    <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(totalTask)}</div></div>
+    <div class="metric"><div class="mlabel">Call Attempts</div><div class="mval">${fmtNum(totalCall)}</div></div>
+    <div class="metric"><div class="mlabel">Successful Connects</div><div class="mval">${fmtNum(totalSucc)}</div><div class="msub">${fmtPct(totalCall ? totalSucc / totalCall * 100 : 0)} success rate</div></div>
+    <div class="metric good"><div class="mlabel">Collections</div><div class="mval">${fmtUGX(totalColl)}</div></div>
+    <div class="metric"><div class="mlabel">Days in view</div><div class="mval">${dates.length}</div></div>`;
 
-  document.getElementById('dash-funnel').innerHTML = funnelHtml(grand,'dash');
-  renderTrendChart(agents, range);
-  renderSpotlights(agents);
-  renderLeaderboard(currentLbMetric||'amount', null);
-}
-let currentLbMetric = 'amount';
-function renderLeaderboard(metric, btn){
-  currentLbMetric = metric;
-  if (btn){ document.querySelectorAll('#lb-tabs .tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }
-  const agents = filteredAgents('dashboard');
-  const range = scopeRange(dashScope);
-  const rows = agents.map(a=>({name:a, ...rangeTotals(a,range.start,range.end)}));
-  const keyMap = {amount:'collected', connectRate:'connectRate', calls:'calls', connects:'connects'};
-  rows.sort((a,b)=>b[keyMap[metric]]-a[keyMap[metric]]);
-  const medals=['🥇','🥈','🥉'];
-  const label = {amount:'Collections',connectRate:'Connect rate',calls:'Call attempts',connects:'Successful connects'}[metric];
-  const rowsHtml = rows.map((r,i)=>`<tr><td class="rank">${medals[i]||(i+1)}</td><td class="name-cell">${r.name}</td>
-    <td class="pos">${metric==='amount'?fmtUGX(r.collected): metric==='connectRate'?pct(r.connectRate): r[keyMap[metric]].toLocaleString()}</td>
-    <td>${r.calls.toLocaleString()}</td><td>${r.connects.toLocaleString()}</td><td>${fmtUGX(r.collected)}</td></tr>`).join('');
-  document.getElementById('leaderboard-table').innerHTML = `<table><thead><tr><th>#</th><th>Agent</th><th>${label}</th>
-    <th>Calls</th><th>Connects</th><th>Collections</th></tr></thead><tbody>${rowsHtml||'<tr><td colspan=6>No data yet</td></tr>'}</tbody></table>`;
-}
-function renderTrendChart(agents, range){
-  const dates = allDatesWithData().filter(d=>d>=range.start && d<=range.end);
-  const collByDate = dates.map(d=>agents.reduce((a,ag)=>a+dailyTotals(ag,d).collected,0));
-  const crByDate = dates.map(d=>{
-    let calls=0,connects=0; agents.forEach(ag=>{const t=dailyTotals(ag,d); calls+=t.calls; connects+=t.connects;});
-    return calls>0?connects/calls*100:0;
+  // collections trend chart (per day, sum across selected agents)
+  const trendDates = dates.length ? dates : loggedDates(datesForPeriod('cycle', ref));
+  const trendVals = trendDates.map(d => names.reduce((a, n) => a + (dailyCollections(STATE, n, d) || 0), 0));
+  destroyChart('trend');
+  chartInstances.trend = new Chart(document.getElementById('chart-collections-trend'), {
+    type: 'line',
+    data: { labels: trendDates, datasets: [{ label: 'Collections', data: trendVals, borderColor: '#22c98a', backgroundColor: 'rgba(34,201,138,.12)', fill: true, tension: .3 }] },
+    options: chartOpts('UGX')
   });
-  const ctx = document.getElementById('chart-trend');
-  if (chartTrend) chartTrend.destroy();
-  chartTrend = new Chart(ctx,{ type:'line',
-    data:{ labels:dates.map(d=>d.slice(5)),
-      datasets:[
-        { label:'Collections', data:collByDate, borderColor:'#e8a33d', backgroundColor:'rgba(232,163,61,0.12)', fill:true, tension:.3, yAxisID:'y', pointRadius:2 },
-        { label:'Connect rate %', data:crByDate, borderColor:'#5b8fe1', tension:.3, yAxisID:'y1', pointRadius:2, borderDash:[4,3] }
-      ]},
-    options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'#98a0b3',font:{size:10}}}},
-      scales:{
-        x:{ticks:{color:'#5c6478',font:{size:9}},grid:{color:'rgba(255,255,255,0.05)'}},
-        y:{position:'left',ticks:{color:'#5c6478',font:{size:9},callback:v=>fmtUGX(v)},grid:{color:'rgba(255,255,255,0.05)'}},
-        y1:{position:'right',ticks:{color:'#5c6478',font:{size:9},callback:v=>v+'%'},grid:{display:false}}
-      }}
+
+  // funnel bar chart
+  destroyChart('funnel');
+  chartInstances.funnel = new Chart(document.getElementById('chart-funnel'), {
+    type: 'bar',
+    data: { labels: ['Task Attempts', 'Call Attempts', 'Successful Connects'], datasets: [{ label: 'Count', data: [totalTask, totalCall, totalSucc], backgroundColor: ['#4f8ef7', '#7c5cfc', '#22c98a'] }] },
+    options: chartOpts('')
   });
-}
-function renderSpotlights(agents){
-  const today = todayStr();
-  const thisWeek = weekRangeFor(today);
-  const lastWeekEnd = addDays(thisWeek.start,-1);
-  const lastWeek = weekRangeFor(lastWeekEnd);
-  const thisWeekTotals = agents.map(a=>({name:a, t:rangeTotals(a,thisWeek.start, today<thisWeek.end?today:thisWeek.end)}));
-  const lastWeekTotals = agents.map(a=>({name:a, t:rangeTotals(a,lastWeek.start,lastWeek.end)}));
 
-  // top performers (this cycle collections)
-  const cycleTotals = agents.map(a=>({name:a, t:rangeTotals(a,currentCycleStart(),today)})).sort((a,b)=>b.t.collected-a.t.collected);
-  document.getElementById('dash-top').innerHTML = cycleTotals.slice(0,3).map((r,i)=>
-    `<div style="margin-bottom:8px;"><b>${['🥇','🥈','🥉'][i]} ${r.name}</b><div class="small-muted">${fmtUGX(r.t.collected)} collected this cycle · ${pct(r.t.connectRate)} connect rate</div></div>`
-  ).join('') || '<p class="small-muted">No data yet.</p>';
-
-  // most improved: week over week
-  const improved = agents.map(a=>{
-    const cur = thisWeekTotals.find(x=>x.name===a).t.collected;
-    const prev = lastWeekTotals.find(x=>x.name===a).t.collected;
-    const delta = prev>0 ? (cur-prev)/prev*100 : (cur>0?100:0);
-    return {name:a, cur, prev, delta};
-  }).filter(x=>x.prev>0 && x.delta>=20).sort((a,b)=>b.delta-a.delta);
-  document.getElementById('dash-improved').innerHTML = improved.slice(0,3).map(r=>
-    `<div style="margin-bottom:8px;"><b>${r.name}</b> <span class="pos">+${r.delta.toFixed(0)}%</span>
-     <div class="small-muted">${fmtUGX(r.prev)} → ${fmtUGX(r.cur)} vs last week</div></div>`
-  ).join('') || '<p class="small-muted">Nobody has jumped 20%+ over last week yet.</p>';
-
-  // consistency
-  const consistentList = agents.map(a=>({name:a, f:computeFlags(a, today)})).filter(x=>x.f.consistent && x.f.counts.considered>=x.f.need);
-  document.getElementById('dash-consistent').innerHTML = consistentList.slice(0,4).map(r=>
-    `<div style="margin-bottom:8px;"><b>${r.name}</b><div class="small-muted">Steady collections for ${r.f.counts.considered} straight working days on record — low swings, dependable output.</div></div>`
-  ).join('') || '<p class="small-muted">No one has enough consecutive days yet to call it consistency.</p>';
-
-  // needs focus: 2+ confirmed weaknesses, or lowest activity
-  const focus = agents.map(a=>{
-    const f = computeFlags(a, today);
-    const weak = ['overDialer','taskSkimmer','softTalker','lowConnect','lowVolume'].filter(k=>f.flags[k]);
-    return {name:a, f, weak};
-  }).filter(x=>x.weak.length>=1).sort((a,b)=>b.weak.length-a.weak.length);
-  const flagLabels = { overDialer:'Over-dialing without connecting', taskSkimmer:'Logging tasks without calling through them',
-    softTalker:'Conversations not converting to payment', lowConnect:'Connect rate below team average', lowVolume:'Call volume below team average' };
-  document.getElementById('dash-focus').innerHTML = focus.length ? focus.map(r=>
-    `<div style="margin-bottom:10px;"><b>${r.name}</b> — ${r.weak.map(w=>`<span class="flag bad">${flagLabels[w]}</span>`).join('')}
-     <div class="small-muted">Confirmed over ${r.f.counts.considered} of the last ${r.f.window} working days, not a one-off.</div></div>`
-  ).join('') : '<p class="small-muted">Nobody has a confirmed (repeated) weakness right now — good sign.</p>';
-}
-
-// ================= AGENTS =================
-function renderAgentSelect(){
-  const sel = document.getElementById('agent-select');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Select agent…</option>'+activeAgents().map(a=>`<option value="${a}">${a}</option>`).join('');
-  if (cur) sel.value = cur;
-  renderAgentProfile();
-}
-function setAgentScope(s,btn){
-  agentScope = s;
-  document.querySelectorAll('#section-agents .tabs .tab-btn[data-scope]').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  renderAgentProfile();
-}
-function renderAgentProfile(){
-  const name = document.getElementById('agent-select').value;
-  const container = document.getElementById('agent-profile-content');
-  if (!name){ container.innerHTML = '<p class="small-muted">Select an agent above.</p>'; return; }
-  const today = todayStr();
-  const range = scopeRange(agentScope);
-  const t = rangeTotals(name, range.start, range.end);
-  const flags = computeFlags(name, today);
-  const dates = allDatesWithData().filter(d=>d>=range.start && d<=range.end);
-
-  // strengths / weaknesses from confirmed flags only
-  const strengthDefs = [
-    {k:'strongCloser', txt:`Turns connects into money — averaging ${fmtUGX(0)} isn't the point, the point is per-connect value is well above the team's.`},
-    {k:'highConnect', txt:`Connect rate is running above the team average.`},
-    {k:'highVolume', txt:`Call volume is above the team average.`},
-  ];
-  const weaknessDefs = [
-    {k:'overDialer', txt:`Dialling a lot more than the team but not converting it into connects — looks like redialling or a stale list, not more effort.`},
-    {k:'taskSkimmer', txt:`Marking through tasks faster than they're actually being called — the list is moving, the phone isn't ringing enough.`},
-    {k:'softTalker', txt:`Getting people on the phone, but those conversations aren't turning into firm payment commitments as often as the team's.`},
-    {k:'lowConnect', txt:`Connect rate is running below the team average.`},
-    {k:'lowVolume', txt:`Call volume is below the team average.`},
-  ];
-  const strengths = strengthDefs.filter(s=>flags.flags[s.k]);
-  const weaknesses = weaknessDefs.filter(w=>flags.flags[w.k]);
-
-  container.innerHTML = `
-    <div class="metrics">
-      <div class="metric"><div class="ml">Task attempts</div><div class="mv">${t.tasks.toLocaleString()}</div></div>
-      <div class="metric"><div class="ml">Call attempts</div><div class="mv">${t.calls.toLocaleString()}</div></div>
-      <div class="metric"><div class="ml">Successful connects</div><div class="mv">${t.connects.toLocaleString()}</div></div>
-      <div class="metric"><div class="ml">Connect rate</div><div class="mv" style="color:var(--good)">${pct(t.connectRate)}</div></div>
-      <div class="metric"><div class="ml">Collections</div><div class="mv" style="font-size:16px;">${fmtUGX(t.collected)}</div></div>
-      <div class="metric"><div class="ml">Per connect</div><div class="mv" style="font-size:16px;">${fmtUGX(t.perConnect)}</div></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><div class="card-h">Pipeline</div>${funnelHtml(t)}</div>
-      <div class="card"><div class="card-h">Hour-by-hour connect rate <span class="sub">grey = doesn't count (lunch calling / partial 8am hour)</span></div>
-        <div class="tbl-wrap">${agentHourTable(name, dates)}</div></div>
-    </div>
-    <div class="card">
-      <div class="card-h">Verdict <span class="sub">only counted once confirmed on ${flags.need}+ of the last ${flags.window} working days (seen on ${flags.counts.considered})</span></div>
-      <div style="margin-bottom:10px;">
-        ${strengths.length ? strengths.map(s=>`<div class="flag good">✦ ${s.txt}</div>`).join('') : '<span class="flag note">No confirmed strength pattern yet</span>'}
-      </div>
-      <div>
-        ${weaknesses.length ? weaknesses.map(w=>`<div class="flag bad">⚠ ${w.txt}</div>`).join('') : '<span class="flag note">No confirmed weakness pattern right now</span>'}
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-h">Daily collections trend</div>
-      <div class="chart-wrap-sm"><canvas id="chart-agent-trend"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="card-h">Copy-paste debrief for ${firstName(name)}</div>
-      <div class="debrief-txt" id="agent-quick-debrief">${buildAgentDebriefText(name, range.start, range.end, 'warm', agentScope)}</div>
-      <button class="btn btn-sm" onclick="copyText(document.getElementById('agent-quick-debrief').textContent)">Copy</button>
-    </div>`;
-  const collByDate = dates.map(d=>dailyTotals(name,d).collected);
-  const ctx = document.getElementById('chart-agent-trend');
-  if (ctx){
-    if (chartAgentTrend) chartAgentTrend.destroy();
-    chartAgentTrend = new Chart(ctx,{type:'bar', data:{labels:dates.map(d=>d.slice(5)),
-      datasets:[{data:collByDate, backgroundColor:'rgba(232,163,61,0.55)', borderColor:'#e8a33d', borderWidth:1, borderRadius:4}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
-        scales:{x:{ticks:{color:'#5c6478',font:{size:9}},grid:{display:false}},
-                y:{ticks:{color:'#5c6478',font:{size:9},callback:v=>fmtUGX(v)},grid:{color:'rgba(255,255,255,0.05)'}}}}});
-  }
-}
-function agentHourTable(name, dates){
-  let head = '<tr><th>Hour</th>'+dates.map(d=>`<th>${d.slice(5)}</th>`).join('')+'<th>Avg</th></tr>';
-  let rows = '<tr>';
-  const body = HOUR_COLS.map(h=>{
-    const hi = parseInt(h,10);
-    const isExcl = state.settings.excludedHours.includes(hi);
-    let cells = `<td class="name-cell">${h}:00</td>`;
-    const vals = [];
-    dates.forEach(d=>{
-      const c = hourlyArr('calls',d,name), cn = hourlyArr('connects',d,name);
-      const rate = c && c[hi]>0 ? (cn?cn[hi]:0)/c[hi]*100 : null;
-      if (rate!==null) vals.push(rate);
-      const color = rate===null?'var(--text3)':rate>=25?'var(--good)':rate>=12?'var(--accent)':'var(--bad)';
-      cells += `<td class="${isExcl?'excl':''}" style="color:${color}">${rate===null?'–':rate.toFixed(0)+'%'}</td>`;
-    });
-    const avg = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
-    cells += `<td style="font-weight:700;">${avg===null?'–':avg.toFixed(0)+'%'}</td>`;
-    return `<tr>${cells}</tr>`;
-  }).join('');
-  return `<table class="heat-table">${head}${body}</table>`;
-}
-
-// ================= TEAM ANALYSIS =================
-function renderTeam(){
-  renderAgentFilterChips('team-agent-filter','team');
-  const agents = filteredAgents('team');
-  const today = todayStr();
-  const dates = lastNWorkingDays(state.settings.thresholdWindow, today);
-
-  // heatmap
-  let head = '<tr><th>Hour</th>'+agents.map(a=>`<th>${firstName(a)}</th>`).join('')+'<th>Team</th></tr>';
-  const rows = HOUR_COLS.map(h=>{
-    const hi = parseInt(h,10);
-    const isExcl = state.settings.excludedHours.includes(hi);
-    let cells = `<td class="name-cell">${h}:00</td>`;
-    agents.forEach(a=>{
-      const r = hourConnectRate([a], dates, hi);
-      const color = r===null?'var(--text3)':r>=25?'var(--good)':r>=12?'var(--accent)':'var(--bad)';
-      cells += `<td class="${isExcl?'excl':''}" style="color:${color}">${r===null?'–':r.toFixed(0)+'%'}</td>`;
-    });
-    const teamR = hourConnectRate(agents, dates, hi);
-    cells += `<td style="font-weight:700;">${teamR===null?'–':teamR.toFixed(0)+'%'}</td>`;
-    return `<tr>${cells}</tr>`;
-  }).join('');
-  document.getElementById('team-heatmap').innerHTML = `<table class="heat-table">${head}${rows}</table>`;
-
-  // flags across team
-  const flagLabels = { overDialer:'Over-dialing without connecting', taskSkimmer:'Logging tasks without calling',
-    softTalker:'Talking, not closing', strongCloser:'Strong closer', highConnect:'High connect rate',
-    lowConnect:'Low connect rate', highVolume:'High volume', lowVolume:'Low volume' };
-  let flagRows = agents.map(a=>{
-    const f = computeFlags(a, today);
-    const active = Object.entries(f.flags).filter(([k,v])=>v).map(([k])=>k);
-    if (!active.length) return null;
-    return `<div style="margin-bottom:9px;"><b>${a}</b> ${active.map(k=>{
-      const good = ['strongCloser','highConnect','highVolume'].includes(k);
-      return `<span class="flag ${good?'good':'bad'}">${flagLabels[k]}</span>`;
-    }).join('')}</div>`;
-  }).filter(Boolean).join('');
-  document.getElementById('team-flags').innerHTML = flagRows || '<p class="small-muted">No confirmed patterns yet — need more days of data.</p>';
-
-  // pipeline chart per agent
-  const range = { start: currentCycleStart(), end: today };
-  const totals = agents.map(a=>rangeTotals(a,range.start,range.end));
-  const ctx = document.getElementById('chart-pipeline');
-  if (chartPipeline) chartPipeline.destroy();
-  chartPipeline = new Chart(ctx, { type:'bar',
-    data:{ labels: agents.map(firstName),
-      datasets:[
-        {label:'Call attempts', data:totals.map(t=>t.calls), backgroundColor:'#5b8fe1'},
-        {label:'Successful connects', data:totals.map(t=>t.connects), backgroundColor:'#4fbe8a'}
-      ]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'#98a0b3',font:{size:10}}}},
-      scales:{x:{ticks:{color:'#5c6478',font:{size:9}},grid:{display:false}},
-              y:{ticks:{color:'#5c6478',font:{size:9}},grid:{color:'rgba(255,255,255,0.05)'}}}}
+  // hourly activity chart (team, summed across selected agents, over selected dates)
+  const hourTask = new Array(24).fill(0), hourCall = new Array(24).fill(0), hourSucc = new Array(24).fill(0);
+  perAgent.forEach(p => { for (let h = 0; h < 24; h++) { hourTask[h] += p.task[h]; hourCall[h] += p.call[h]; hourSucc[h] += p.succ[h]; } });
+  const workHours = STATE.settings.workHours;
+  destroyChart('hourly');
+  chartInstances.hourly = new Chart(document.getElementById('chart-hourly'), {
+    type: 'bar',
+    data: {
+      labels: workHours.map(h => hourLabel(h)),
+      datasets: [
+        { label: 'Call Attempts', data: workHours.map(h => hourCall[h]), backgroundColor: '#7c5cfc' },
+        { label: 'Successful Connects', data: workHours.map(h => hourSucc[h]), backgroundColor: '#22c98a' }
+      ]
+    },
+    options: chartOpts('')
   });
+
+  // success rate by agent
+  const srRows = activeNames().map(n => {
+    const r = rangeStats(STATE, n, dates);
+    return { name: n, rate: r.successRate };
+  }).sort((a, b) => b.rate - a.rate);
+  destroyChart('successrate');
+  chartInstances.successrate = new Chart(document.getElementById('chart-successrate'), {
+    type: 'bar',
+    data: { labels: srRows.map(r => firstName(r.name)), datasets: [{ label: 'Success Rate %', data: srRows.map(r => r.rate.toFixed(1)), backgroundColor: srRows.map(r => r.rate >= 40 ? '#22c98a' : r.rate >= 25 ? '#f5a623' : '#f55a5a') }] },
+    options: chartOpts('%')
+  });
+
+  // leaderboard
+  document.getElementById('dash-leaderboard-range').textContent = periodLabel(dashPeriod, ref);
+  const board = activeNames().map(n => rangeStats(STATE, n, dates)).sort((a, b) => b.collections - a.collections);
+  document.getElementById('dash-leaderboard').innerHTML = `<table><thead><tr>
+      <th>#</th><th>Agent</th><th>Task</th><th>Calls</th><th>Succ. Connects</th><th>Success Rate</th><th>Collections</th><th>vs Target (cycle)</th>
+    </tr></thead><tbody>${board.map((r, i) => {
+      const prog = cycleProgressFor(r.agent, ref);
+      return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${fmtNum(r.totalTask)}</td><td>${fmtNum(r.totalCall)}</td>
+        <td>${fmtNum(r.totalSucc)}</td><td>${fmtPct(r.successRate)}</td><td>${fmtUGX(r.collections)}</td>
+        <td class="${prog.pct >= 75 ? 'pos' : prog.pct >= 40 ? 'neutral' : 'neg'}">${prog.pct.toFixed(0)}%</td></tr>`;
+    }).join('')}</tbody></table>`;
+
+  renderCelebrateAndFocus(ref);
 }
 
-// ================= DEBRIEF =================
-function setDebriefMode(m,btn){
-  debriefMode = m;
-  document.querySelectorAll('#section-debrief .tabs .tab-btn[data-mode]').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  renderDebriefRefRow();
-}
-function renderDebriefRefRow(){
-  const row = document.getElementById('debrief-ref-row');
-  const today = todayStr();
-  if (debriefMode==='day'){
-    row.innerHTML = `<label>Date</label><input type="date" id="debrief-ref-date" value="${today}">`;
-  } else if (debriefMode==='week'){
-    row.innerHTML = `<label>Any date in the week</label><input type="date" id="debrief-ref-date" value="${today}">`;
-  } else {
-    const codes = Object.keys(state.cycles).sort();
-    if (!codes.includes(cycleCodeFor(currentCycleStart()))) codes.push(cycleCodeFor(currentCycleStart()));
-    row.innerHTML = `<label>Cycle</label><select id="debrief-ref-cycle">
-      ${codes.sort().reverse().map(c=>`<option value="${c}" ${c===cycleCodeFor(currentCycleStart())?'selected':''}>${c}${state.cycles[c]?.closed?' (closed)':''}</option>`).join('')}
-      </select>`;
-  }
-}
-function debriefRange(){
-  if (debriefMode==='day'){ const d = document.getElementById('debrief-ref-date').value || todayStr(); return {start:d,end:d,label:'End of day · '+d}; }
-  if (debriefMode==='week'){ const d = document.getElementById('debrief-ref-date').value || todayStr(); const w = weekRangeFor(d); return {start:w.start,end:w.end,label:'Week of '+w.start+' to '+w.end}; }
-  const code = document.getElementById('debrief-ref-cycle').value;
-  const c = state.cycles[code] || {startDate:currentCycleStart(), endDate:cycleEndFor(currentCycleStart())};
-  return {start:c.startDate, end:c.endDate<todayStr()?c.endDate:todayStr(), label:'Cycle '+code+' ('+c.startDate+' to '+c.endDate+')'};
-}
-function buildAgentDebriefText(name, start, end, tone, scopeLabel){
-  const t = rangeTotals(name, start, end);
-  const f = computeFlags(name, end);
-  const agents = activeAgents();
-  const avg = teamAverages(agents, start, end);
-  const lines = [];
-  const good = [];
-  const need = [];
-  if (f.flags.strongCloser) good.push(`You're turning connects into real payment — ${fmtUGX(t.perConnect)} per successful connect, above the team's ${fmtUGX(avg.perConnect)}.`);
-  if (f.flags.highConnect) good.push(`Your connect rate is ${pct(t.connectRate)}, ahead of the team average of ${pct(avg.connectRate)}, and it's held for ${f.counts.considered} of the last ${f.window} working days.`);
-  if (f.flags.highVolume) good.push(`You're putting in more call attempts than most of the floor — ${t.calls.toLocaleString()} against a team average around ${Math.round(avg.calls).toLocaleString()}.`);
-  if (f.consistent) good.push(`Your daily collections have stayed steady rather than swinging up and down — that's the kind of number a manager can plan around.`);
-  if (f.flags.overDialer) need.push(`Your call attempts are well above the team but your connect rate is below it, on ${f.counts.overDialer} of the last ${f.window} days — that reads as redialling the same numbers rather than working fresh contacts. Check your list before the next push.`);
-  if (f.flags.taskSkimmer) need.push(`Tasks are moving through your queue faster than the phone is actually ringing — on ${f.counts.taskSkimmer} of the last ${f.window} days you called through less than 60% of what you logged. I need you calling the tasks, not just clearing them.`);
-  if (f.flags.softTalker) need.push(`You're getting people on the phone — that's not the issue — but those conversations aren't turning into firm payment as often as the team's, on ${f.counts.softTalker} of the last ${f.window} days. I need firmer asks: a date and an amount before you hang up.`);
-  if (f.flags.lowConnect && !f.flags.overDialer) need.push(`Connect rate is sitting at ${pct(t.connectRate)} against a team average of ${pct(avg.connectRate)}, on ${f.counts.lowConnect} of the last ${f.window} days. Worth testing different hours — your own hour-by-hour numbers are on your profile tab.`);
-  if (f.flags.lowVolume) need.push(`Call attempts are below the team average on ${f.counts.lowVolume} of the last ${f.window} days — ${t.calls.toLocaleString()} against roughly ${Math.round(avg.calls).toLocaleString()}. I need more dials before anything else changes.`);
-
-  const openers = { warm: `Hey ${firstName(name)} — here's where things stand.`, firm: `${firstName(name)} — straight numbers, no sugar-coating.`, analytical: `${name} — performance read for ${scopeLabelText()}` };
-  function scopeLabelText(){ return start===end? start : start+' to '+end; }
-  lines.push(openers[tone] || openers.warm);
-  lines.push('');
-  lines.push(`Tasks: ${t.tasks.toLocaleString()} · Calls: ${t.calls.toLocaleString()} · Connects: ${t.connects.toLocaleString()} (${pct(t.connectRate)}) · Collections: ${fmtUGX(t.collected)}`);
-  lines.push('');
-  if (good.length){ lines.push('✅ You are:'); good.forEach(g=>lines.push('• '+g)); lines.push(''); }
-  if (need.length){ lines.push('🎯 I need:'); need.forEach(n=>lines.push('• '+n)); lines.push(''); }
-  if (!good.length && !need.length){ lines.push(`Not enough repeated days yet to call a clear pattern — keep the numbers coming and we'll know more by the end of the week.`); lines.push(''); }
-  const closers = { warm: `Keep going, ${firstName(name)} — this is buildable.`, firm: `Fix this and the number moves. Simple as that.`, analytical: `Reassess at the next data pull.` };
-  lines.push(closers[tone] || closers.warm);
-  return lines.join('\n');
-}
-function buildTeamDebriefText(range, tone){
-  const agents = activeAgents();
-  const totals = agents.map(a=>({name:a, t:rangeTotals(a,range.start,range.end)}));
-  const grand = totals.reduce((acc,r)=>({tasks:acc.tasks+r.t.tasks,calls:acc.calls+r.t.calls,connects:acc.connects+r.t.connects,collected:acc.collected+r.t.collected}),{tasks:0,calls:0,connects:0,collected:0});
-  const cRate = grand.calls>0?grand.connects/grand.calls*100:0;
-  const ranked = totals.slice().sort((a,b)=>b.t.collected-a.t.collected);
-  const top = ranked[0];
-  const focus = agents.map(a=>({name:a,f:computeFlags(a,range.end)})).filter(x=>['overDialer','taskSkimmer','softTalker','lowConnect','lowVolume'].some(k=>x.f.flags[k]));
-  const consistent = agents.map(a=>({name:a,f:computeFlags(a,range.end)})).filter(x=>x.f.consistent);
-
-  const lines = [];
-  lines.push(`${state.settings.teamName} — ${range.label}`);
-  lines.push('');
-  lines.push(`Tasks: ${grand.tasks.toLocaleString()} · Calls: ${grand.calls.toLocaleString()} · Connects: ${grand.connects.toLocaleString()} (${pct(cRate)}) · Collections: ${fmtUGX(grand.collected)}`);
-  lines.push('');
-  if (top) lines.push(`Top performer: ${top.name} — ${fmtUGX(top.t.collected)}, ${pct(top.t.connectRate)} connect rate.`);
-  if (consistent.length) lines.push(`Steady this stretch: ${consistent.map(c=>c.name).join(', ')}.`);
-  if (focus.length) lines.push(`Needs a closer look: ${focus.map(f=>f.name).join(', ')} — see their individual debriefs for specifics.`);
-  lines.push('');
-  lines.push(`Note: 1–3pm is excluded from anyone's connect-rate read — that's Arrangements/Balance Transfer calling and it always looks thin on connects. The 8am hour is only a 15-minute window (we start at 8:45), so it's not a fair comparison either.`);
-  return lines.join('\n');
-}
-function generateDebrief(){
-  const range = debriefRange();
-  const tone = document.getElementById('debrief-tone').value;
-  document.getElementById('debrief-team-card').innerHTML = `<div class="debrief-card">
-    <div class="dname">Team debrief</div><div class="dmeta">${range.label}</div>
-    <div class="debrief-txt" id="team-debrief-txt">${buildTeamDebriefText(range, tone)}</div>
-    <button class="btn btn-sm" onclick="copyText(document.getElementById('team-debrief-txt').textContent)">Copy</button>
-  </div>`;
-  const out = document.getElementById('debrief-output');
-  out.innerHTML = activeAgents().map(name=>{
-    const txt = buildAgentDebriefText(name, range.start, range.end, tone);
-    lastDebriefText.agents[name] = txt;
-    return `<div class="debrief-card">
-      <div class="dname">${name}</div><div class="dmeta">${range.label}</div>
-      <div class="debrief-txt" id="d-${keySafe(name)}">${txt}</div>
-      <button class="btn btn-sm" onclick="copyText(document.getElementById('d-${keySafe(name)}').textContent)">Copy</button>
-    </div>`;
-  }).join('');
-  lastDebriefText.team = buildTeamDebriefText(range, tone);
-  showToast('Debrief generated', 'success');
-}
-function copyText(text){
-  navigator.clipboard?.writeText(text).then(()=>showToast('Copied', 'success')).catch(()=>showToast('Could not copy', 'error'));
-}
-function copyAllDebriefs(){
-  const all = [lastDebriefText.team, ...Object.values(lastDebriefText.agents)].join('\n\n'+'—'.repeat(30)+'\n\n');
-  copyText(all);
-}
-
-// ================= SETTINGS =================
-function renderSettings(){
-  document.getElementById('set-cycle-start').value = state.settings.cycleStartDay;
-  document.getElementById('set-team-name').value = state.settings.teamName;
-  document.getElementById('set-threshold-days').value = state.settings.thresholdDays;
-  document.getElementById('set-threshold-window').value = state.settings.thresholdWindow;
-  document.getElementById('set-api-key').value = state.settings.apiKey || '';
-  renderAuthBox();
-  document.getElementById('agent-mgmt-list').innerHTML = state.roster.map((a,i)=>`
-    <div class="agent-mgmt-row"><span style="flex:1;${a.removed?'color:var(--text3);text-decoration:line-through;':''}">${a.name}</span>
-    ${a.removed ? `<button class="btn btn-sm btn-good" onclick="restoreAgent(${i})">Restore</button>`
-                : `<button class="btn btn-sm btn-danger" onclick="removeAgentUI(${i})">Remove</button>`}</div>`).join('');
-  const codes = Object.keys(state.cycles).sort().reverse();
-  document.getElementById('cycle-history').innerHTML = codes.length ? '<div class="small-muted">Cycles on record: '+
-    codes.map(c=>c+(state.cycles[c].closed?' (closed)':'')).join(', ')+'</div>' : '';
-}
-function saveCycleSettings(){
-  state.settings.cycleStartDay = parseInt(document.getElementById('set-cycle-start').value)||11;
-  state.settings.teamName = document.getElementById('set-team-name').value.trim()||'Deal Sealers';
-  dbWrite('settings', state.settings);
-  updateCycleBadge(); showToast('Saved','success');
-}
-function saveThresholdSettings(){
-  state.settings.thresholdDays = parseInt(document.getElementById('set-threshold-days').value)||3;
-  state.settings.thresholdWindow = parseInt(document.getElementById('set-threshold-window').value)||5;
-  dbWrite('settings', state.settings);
-  showToast('Saved','success');
-}
-function saveApiKey(){
-  state.settings.apiKey = document.getElementById('set-api-key').value.trim();
-  dbWrite('settings', state.settings);
-  showToast('API key saved','success');
-}
-function closeCurrentCycle(){
-  const code = cycleCodeFor(currentCycleStart());
-  ensureCycleRegistered(todayStr());
-  state.cycles[code].closed = true; state.cycles[code].closedAt = Date.now();
-  dbWrite('cycles/'+code, state.cycles[code]);
-  showToast('Cycle '+code+' closed — next cycle starts automatically on the date roll-over', 'success');
-  updateCycleBadge(); renderSettings();
-}
-function addAgentUI(){
-  const name = document.getElementById('new-agent-name').value.trim();
-  if (!name){ showToast('Enter a name','error'); return; }
-  const existing = state.roster.find(a=>norm(a.name)===norm(name));
-  if (existing){ existing.removed=false; }
-  else state.roster.push({name, addedAt:Date.now(), removed:false});
-  dbWrite('roster', state.roster);
-  document.getElementById('new-agent-name').value='';
-  renderSettings(); renderEverything();
-  showToast('Added '+name,'success');
-}
-function removeAgentUI(i){
-  state.roster[i].removed = true;
-  dbWrite('roster', state.roster);
-  renderSettings(); renderEverything();
-}
-function restoreAgent(i){
-  state.roster[i].removed = false;
-  dbWrite('roster', state.roster);
-  renderSettings(); renderEverything();
-}
-function exportBackup(){
-  const blob = new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
-  const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download = 'agent-tracker-backup-'+todayStr()+'.json'; a.click();
-}
-function restoreBackup(input){
-  const file = input.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try{
-      const d = JSON.parse(e.target.result);
-      state = { ...state, ...d, settings:{...DEFAULT_SETTINGS, ...(d.settings||{})} };
-      dbWrite('', state);
-      showToast('Backup restored','success'); renderEverything();
-    }catch(err){ showToast('Invalid backup file','error'); }
+function chartOpts(unit) {
+  return {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#9096b3', font: { size: 10 } } } },
+    scales: {
+      x: { ticks: { color: '#5c6284', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+      y: { ticks: { color: '#5c6284', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.05)' } }
+    }
   };
+}
+
+function weeklyComparisonRows(refDate) {
+  const wkStart = isoWeekStart(refDate), wkEnd = refDate;
+  const prevWkStart = addDays(wkStart, -7), prevWkEnd = addDays(wkStart, -1);
+  const curDates = loggedDates(enumerateDates(wkStart, wkEnd));
+  const prevDates = loggedDates(enumerateDates(prevWkStart, prevWkEnd));
+  return activeNames().map(n => {
+    const cur = rangeStats(STATE, n, curDates);
+    const prev = rangeStats(STATE, n, prevDates);
+    const improvement = prev.collections > 0 ? ((cur.collections - prev.collections) / prev.collections * 100) : (cur.collections > 0 ? 100 : 0);
+    const dailyVals = curDates.map(d => dailyCollections(STATE, n, d) || 0).filter(v => v !== null);
+    const mean = dailyVals.length ? dailyVals.reduce((a, b) => a + b, 0) / dailyVals.length : 0;
+    const variance = dailyVals.length ? dailyVals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / dailyVals.length : 0;
+    const cv = mean > 0 ? Math.sqrt(variance) / mean : Infinity;
+    return { name: n, cur, prev, improvement, cv, daysLogged: curDates.length };
+  });
+}
+
+function renderCelebrateAndFocus(refDate) {
+  const rows = weeklyComparisonRows(refDate);
+  const topPerformer = rows.slice().sort((a, b) => b.cur.collections - a.cur.collections)[0];
+  const improvedCandidates = rows.filter(r => r.prev.collections > 0 && r.cur.collections > 0).sort((a, b) => b.improvement - a.improvement);
+  const mostImproved = improvedCandidates[0];
+  const consistencyCandidates = rows.filter(r => r.daysLogged >= 3 && r.cur.collections > 0).sort((a, b) => a.cv - b.cv);
+  const mostConsistent = consistencyCandidates[0];
+
+  const celebrateHtml = [];
+  if (topPerformer && topPerformer.cur.collections > 0) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(topPerformer.name)}</b> \u2014 Top Performer This Week<br><span class="muted small">${fmtUGX(topPerformer.cur.collections)} collected so far this week.</span></div>`);
+  if (mostImproved && mostImproved.improvement > 10) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(mostImproved.name)}</b> \u2014 Most Improved<br><span class="muted small">Up ${mostImproved.improvement.toFixed(0)}% on collections vs last week (${fmtUGX(mostImproved.prev.collections)} \u2192 ${fmtUGX(mostImproved.cur.collections)}).</span></div>`);
+  if (mostConsistent && isFinite(mostConsistent.cv)) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(mostConsistent.name)}</b> \u2014 Consistency Award<br><span class="muted small">Steadiest day-to-day collections this week \u2014 dependable, not just a good day here and there.</span></div>`);
+  document.getElementById('dash-celebrate').innerHTML = celebrateHtml.join('') || '<div class="empty-note">Not enough logged days yet this week to call it.</div>';
+
+  const focusRows = activeNames().map(n => ({ n, p: agentPatternSummary(STATE, activeRoster(), n, refDate) }))
+    .filter(x => x.p.confirmed.some(k => WEAKNESS_KEYS.includes(k)));
+  document.getElementById('dash-focus').innerHTML = focusRows.length
+    ? focusRows.map(x => {
+        const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k));
+        const s = dayStats(STATE, x.n, refDate);
+        return `<div class="debrief-card"><b>${escapeHtml(x.n)}</b><br><span class="muted small">${escapeHtml(FLAG_TEXT[key].weakness(s))}</span></div>`;
+      }).join('')
+    : '<div class="empty-note">No agent has a confirmed coaching pattern right now.</div>';
+}
+
+// ===================== RENDER: PIPELINE =====================
+let pipelinePeriod = 'cycle';
+document.getElementById('pipeline-period-tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab-btn'); if (!b) return;
+  document.querySelectorAll('#pipeline-period-tabs .tab-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); pipelinePeriod = b.dataset.period; renderPipeline();
+});
+document.getElementById('pipeline-agent-filter').addEventListener('change', renderPipeline);
+
+function funnelHtml(totalTask, totalCall, totalSucc, totalColl) {
+  const dialRate = totalTask ? totalCall / totalTask * 100 : 0;
+  const successRate = totalCall ? totalSucc / totalCall * 100 : 0;
+  const stages = [
+    { label: 'Task Attempts', num: fmtNum(totalTask), pct: null },
+    { label: 'Call Attempts', num: fmtNum(totalCall), pct: fmtPct(dialRate) + ' of tasks' },
+    { label: 'Successful Connects', num: fmtNum(totalSucc), pct: fmtPct(successRate) + ' of calls' },
+    { label: 'Collections', num: fmtUGX(totalColl), pct: totalSucc ? fmtUGX(totalColl / totalSucc) + '/connect' : '' }
+  ];
+  const worstIdx = [dialRate, successRate].indexOf(Math.min(dialRate, successRate)) + 1;
+  let html = '<div class="funnel-wrap">';
+  stages.forEach((st, i) => {
+    if (i > 0) html += `<div class="funnel-arrow">\u2192</div>`;
+    const breakCls = i === worstIdx ? ' funnel-break' : '';
+    html += `<div class="funnel-stage"><div class="funnel-bar${breakCls}"><div class="fnum">${st.num}</div><div class="flabel">${st.label}</div>${st.pct ? `<div class="fpct">${st.pct}</div>` : ''}</div></div>`;
+  });
+  html += '</div>';
+  return { html, dialRate, successRate, worstIdx };
+}
+
+function renderPipeline() {
+  const sel = document.getElementById('pipeline-agent-filter');
+  populateAgentSelect(sel, true);
+  const filterVal = sel.value || '__all__';
+  const ref = todayStr();
+  const dates = loggedDates(datesForPeriod(pipelinePeriod, ref));
+  const names = filterVal === '__all__' ? activeNames() : [filterVal];
+  const perAgent = names.map(n => rangeStats(STATE, n, dates));
+  const totalTask = perAgent.reduce((a, x) => a + x.totalTask, 0);
+  const totalCall = perAgent.reduce((a, x) => a + x.totalCall, 0);
+  const totalSucc = perAgent.reduce((a, x) => a + x.totalSucc, 0);
+  const totalColl = perAgent.reduce((a, x) => a + x.collections, 0);
+
+  const f = funnelHtml(totalTask, totalCall, totalSucc, totalColl);
+  document.getElementById('pipeline-funnel').innerHTML = f.html;
+
+  let explain;
+  if (!totalCall) {
+    explain = `No activity logged for this period yet.`;
+  } else if (f.dialRate < f.successRate && f.dialRate < 70) {
+    explain = `The biggest leak is between <b>task attempts and call attempts</b> \u2014 only ${fmtPct(f.dialRate)} of accounts opened are actually being dialed. Accounts are being touched but not called.`;
+  } else if (f.successRate < 35) {
+    explain = `The biggest leak is between <b>call attempts and successful connects</b> \u2014 ${fmtPct(f.successRate)} of dials are turning into a real conversation. Either the numbers aren't reaching people, or the timing is off.`;
+  } else {
+    explain = `The funnel is holding up reasonably well \u2014 ${fmtPct(f.dialRate)} of tasks become calls, and ${fmtPct(f.successRate)} of calls become successful connects. The next lever is value per connect: ${fmtUGX(totalSucc ? totalColl / totalSucc : 0)} per successful connect right now.`;
+  }
+  document.getElementById('pipeline-explain').innerHTML = `<div class="debrief-body">${explain}</div>`;
+
+  const rows = activeNames().map(n => rangeStats(STATE, n, dates)).map(r => ({
+    ...r,
+    dialRate: r.totalTask ? r.totalCall / r.totalTask * 100 : 0
+  })).sort((a, b) => b.collections - a.collections);
+
+  document.getElementById('pipeline-table').innerHTML = `<table><thead><tr>
+      <th>Agent</th><th>Task \u2192 Call</th><th>Call \u2192 Connect</th><th>Value/Connect</th><th>Biggest Break</th>
+    </tr></thead><tbody>${rows.map(r => {
+      const worst = r.dialRate < r.successRate ? 'Task \u2192 Call' : 'Call \u2192 Connect';
+      const worstVal = Math.min(r.dialRate, r.successRate);
+      return `<tr><td class="name-cell">${escapeHtml(r.agent)}</td><td>${fmtPct(r.dialRate)}</td><td>${fmtPct(r.successRate)}</td>
+        <td>${fmtUGX(r.collPerSucc)}</td><td class="${worstVal < 35 ? 'neg' : 'neutral'}">${r.totalCall ? worst : '\u2014'}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+// ===================== RENDER: AGENT PROFILE =====================
+let agentProfilePeriod = 'cycle';
+document.getElementById('agentprofile-period-tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab-btn'); if (!b) return;
+  document.querySelectorAll('#agentprofile-period-tabs .tab-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); agentProfilePeriod = b.dataset.period; renderAgentProfile();
+});
+document.getElementById('agent-select').addEventListener('change', renderAgentProfile);
+
+function renderAgentProfile() {
+  const sel = document.getElementById('agent-select');
+  populateAgentSelect(sel, false);
+  const container = document.getElementById('agent-profile-content');
+  if (!sel.value) { container.innerHTML = '<div class="empty-note">No agents in the roster yet.</div>'; return; }
+  const agent = sel.value;
+  const ref = todayStr();
+  const dates = loggedDates(datesForPeriod(agentProfilePeriod, ref));
+  const r = rangeStats(STATE, agent, dates);
+  const prog = cycleProgressFor(agent, ref);
+  const pattern = agentPatternSummary(STATE, activeRoster(), agent, ref);
+  const sw = strongWeakHours(r.succ, STATE.settings);
+
+  const f = funnelHtml(r.totalTask, r.totalCall, r.totalSucc, r.collections);
+
+  const strengthsHtml = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k))
+    .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
+  const weaknessHtml = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k))
+    .map(k => `<div class="need-line">${escapeHtml(FLAG_TEXT[k].weakness(r))} ${escapeHtml(FLAG_TEXT[k].ask)}</div>`).join('') || '<div class="muted small">No confirmed coaching flag right now.</div>';
+  const emergingHtml = pattern.emerging.map(k => {
+    const def = FLAG_TEXT[k]; const txt = def.weakness ? def.weakness(r) : def.strength(r);
+    return `<div class="muted small">Showing up ${pattern.counts[k]}/${pattern.windowDates.length} days: ${escapeHtml(txt)}</div>`;
+  }).join('');
+
+  // trend chart: daily collections across the whole cycle to date
+  const cyc = cycleForDate(STATE, ref);
+  const cycDates = loggedDates(enumerateDates(cyc.start, ref));
+  const trendVals = cycDates.map(d => dailyCollections(STATE, agent, d) || 0);
+
+  document.getElementById('agent-profile-content').innerHTML = `
+    <div class="metrics">
+      <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(r.totalTask)}</div></div>
+      <div class="metric"><div class="mlabel">Call Attempts</div><div class="mval">${fmtNum(r.totalCall)}</div></div>
+      <div class="metric"><div class="mlabel">Successful Connects</div><div class="mval">${fmtNum(r.totalSucc)}</div><div class="msub">${fmtPct(r.successRate)} success rate</div></div>
+      <div class="metric good"><div class="mlabel">Collections</div><div class="mval">${fmtUGX(r.collections)}</div></div>
+      <div class="metric ${prog.pct >= 75 ? 'good' : prog.pct >= 40 ? 'warn' : 'bad'}"><div class="mlabel">Cycle vs Target</div><div class="mval">${prog.pct.toFixed(0)}%</div><div class="msub">${fmtUGX(prog.cycleToDate)} of ${fmtUGX(prog.target)}</div></div>
+    </div>
+    <div class="card"><div class="card-header">Pipeline \u2014 ${periodLabel(agentProfilePeriod, ref)}</div>${f.html}</div>
+    <div class="grid2">
+      <div class="card"><div class="card-header">Strengths</div>${strengthsHtml}${emergingHtml ? '<div style="margin-top:8px;">' + emergingHtml + '</div>' : ''}</div>
+      <div class="card"><div class="card-header">Coaching</div>${weaknessHtml}</div>
+    </div>
+    <div class="card"><div class="card-header">Hourly Pattern</div><canvas id="chart-agent-hourly" height="140"></canvas>
+      <div class="small muted" style="margin-top:8px;">${hourNoteText(r)}</div></div>
+    <div class="card"><div class="card-header">Collections Trend \u2014 this cycle</div><canvas id="chart-agent-trend" height="140"></canvas></div>
+    <div class="card"><div class="card-header">Target Pace</div>
+      <div class="small">Cycle: ${prog.cyc.start} \u2192 ${prog.cyc.end || 'open'} &middot; Day ${prog.daysElapsed} of ${prog.totalCycleDays} &middot; ${prog.daysLeft} day(s) left</div>
+      <div class="small" style="margin-top:6px;">At the current pace, projected cycle total is <b>${fmtUGX(prog.projected)}</b> against a target of ${fmtUGX(prog.target)}. Needs ${fmtUGX(prog.paceNeeded)}/day to close the gap.</div>
+    </div>
+    <div class="copy-line"><button class="btn btn-primary" id="agent-profile-copy-btn">Copy Today's Feedback</button></div>
+  `;
+
+  const workHours = STATE.settings.workHours;
+  destroyChart('agentHourly');
+  chartInstances.agentHourly = new Chart(document.getElementById('chart-agent-hourly'), {
+    type: 'bar',
+    data: { labels: workHours.map(h => hourLabel(h)), datasets: [
+      { label: 'Call Attempts', data: workHours.map(h => r.call[h]), backgroundColor: '#7c5cfc' },
+      { label: 'Successful Connects', data: workHours.map(h => r.succ[h]), backgroundColor: '#22c98a' }
+    ] },
+    options: chartOpts('')
+  });
+  destroyChart('agentTrend');
+  chartInstances.agentTrend = new Chart(document.getElementById('chart-agent-trend'), {
+    type: 'line',
+    data: { labels: cycDates, datasets: [{ label: 'Daily Collections', data: trendVals, borderColor: '#4f8ef7', backgroundColor: 'rgba(79,142,247,.12)', fill: true, tension: .3 }] },
+    options: chartOpts('UGX')
+  });
+
+  document.getElementById('agent-profile-copy-btn').addEventListener('click', () => {
+    copyText(agentDebriefText(agentDebrief(agent, ref)), agent + "'s feedback");
+  });
+}
+
+// ===================== RENDER: CSV IMPORT =====================
+let importMetric = 'task';
+let pendingImports = { task: null, call: null, succ: null, coll: null };
+const METRIC_LABELS = { task: 'Task Attempts', call: 'Call Attempts', succ: 'Successful Connects', coll: 'Collections' };
+
+document.getElementById('import-tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab-btn'); if (!b) return;
+  document.querySelectorAll('#import-tabs .tab-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); importMetric = b.dataset.metric; renderImport();
+});
+
+document.getElementById('import-dropzone').addEventListener('click', () => document.getElementById('import-file-input').click());
+document.getElementById('import-dropzone').addEventListener('dragover', e => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); });
+document.getElementById('import-dropzone').addEventListener('dragleave', e => e.currentTarget.classList.remove('drag-over'));
+document.getElementById('import-dropzone').addEventListener('drop', e => {
+  e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0]; if (f) readCsvFile(f);
+});
+document.getElementById('import-file-input').addEventListener('change', e => { if (e.target.files[0]) readCsvFile(e.target.files[0]); });
+function readCsvFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById('import-paste').value = e.target.result; parseCurrentImport(); };
   reader.readAsText(file);
 }
-function confirmWipe(){
-  document.getElementById('modal-msg').textContent = 'Delete ALL data — every CSV import, every day? This cannot be undone.';
-  modalCb = async () => { state.hourly={tasks:{},calls:{},connects:{}}; state.collectionsSnapshot={}; state.collectionsDaily={}; state.cycles={};
-    const ok = await dbWrite('', state);
-    showToast(ok ? 'All data wiped' : 'Wiped locally — NOT synced (retry sync)', ok?'success':'error');
-    renderEverything(); renderRecentImports(); };
-  document.getElementById('modal-bg').classList.add('show');
-}
-function modalConfirm(){ if(modalCb) modalCb(); modalCb=null; document.getElementById('modal-bg').classList.remove('show'); }
-function modalClose(){ modalCb=null; document.getElementById('modal-bg').classList.remove('show'); }
+document.getElementById('import-parse-btn').addEventListener('click', parseCurrentImport);
 
-// ================= INIT =================
-function renderEverything(){
-  updateCycleBadge();
-  const activeSection = document.querySelector('.section.active')?.id.replace('section-','') || 'dashboard';
-  showSection(activeSection);
+function parseCurrentImport() {
+  const text = document.getElementById('import-paste').value;
+  if (!text.trim()) { toast('Paste or upload a CSV first', 'error'); return; }
+  let result;
+  if (importMetric === 'coll') result = parseCollectionsCsv(text, STATE.roster);
+  else result = parseHourlyCsv(text, STATE.roster);
+  pendingImports[importMetric] = result;
+  renderImportPreview(result);
+  renderImportPending();
+  const statusEl = document.getElementById('import-status');
+  statusEl.textContent = `${result.matchedRows} of ${result.totalRows} rows matched to the roster` + (result.unmatched.length ? ` \u2014 ${result.unmatched.length} name(s) not tracked (skipped)` : '');
+  toast(`Parsed ${result.matchedRows} agent(s) for ${METRIC_LABELS[importMetric]}`, 'success');
 }
-window.addEventListener('load', async () => {
-  loadLocal();
-  document.getElementById('import-date').value = todayStr();
-  updateCycleBadge();
-  renderDashboard();
-  renderRecentImports();
-  await loadFromFirebase();
+
+function renderImportPreview(result) {
+  const el = document.getElementById('import-preview');
+  if (!result || !Object.keys(result.data).length) { el.innerHTML = '<div class="empty-note">No matching rows parsed yet.</div>'; return; }
+  if (importMetric === 'coll') {
+    el.innerHTML = `<table><thead><tr><th>Agent</th><th>Cumulative Total</th></tr></thead><tbody>
+      ${Object.entries(result.data).map(([n, v]) => `<tr><td class="name-cell">${escapeHtml(n)}</td><td>${fmtUGX(v)}</td></tr>`).join('')}
+    </tbody></table>`;
+  } else {
+    el.innerHTML = `<table><thead><tr><th>Agent</th><th>Total</th><th>Hours with activity</th></tr></thead><tbody>
+      ${Object.entries(result.data).map(([n, arr]) => `<tr><td class="name-cell">${escapeHtml(n)}</td><td>${fmtNum(sumArr(arr))}</td><td>${arr.filter(v => v > 0).length}</td></tr>`).join('')}
+    </tbody></table>`;
+  }
+  if (result.unmatched.length) {
+    el.innerHTML += `<div class="chip-list">${result.unmatched.map(n => `<span class="pill pill-grey">Not tracked: ${escapeHtml(n)}</span>`).join('')}</div>`;
+  }
+}
+
+function renderImportPending() {
+  const list = document.getElementById('import-pending-list');
+  const keys = ['task', 'call', 'succ', 'coll'];
+  const readyCount = keys.filter(k => pendingImports[k]).length;
+  document.getElementById('import-pending-summary').textContent = `${readyCount}/4 slots ready`;
+  list.innerHTML = keys.map(k => {
+    const p = pendingImports[k];
+    return `<div class="row" style="margin-bottom:6px;"><span class="pill ${p ? 'pill-green' : 'pill-grey'}" style="min-width:170px;text-align:center;">${METRIC_LABELS[k]}</span>
+      <span class="small muted">${p ? p.matchedRows + ' agents parsed' : 'not uploaded yet'}</span></div>`;
+  }).join('');
+  document.getElementById('import-save-btn').disabled = readyCount === 0;
+}
+
+function renderImportLoggedDates() {
+  const dates = Object.keys(STATE.daily).sort().reverse().slice(0, 30);
+  const el = document.getElementById('import-logged-dates');
+  if (!dates.length) { el.innerHTML = '<div class="empty-note">Nothing logged yet.</div>'; return; }
+  el.innerHTML = `<table><thead><tr><th>Date</th><th>Agents (metrics)</th><th>Agents (collections)</th></tr></thead><tbody>
+    ${dates.map(d => {
+      const rec = STATE.daily[d];
+      const mCount = rec.metrics ? Object.keys(rec.metrics).length : 0;
+      const cCount = rec.collectionsCumulative ? Object.keys(rec.collectionsCumulative).length : 0;
+      return `<tr><td class="name-cell">${d}</td><td>${mCount}</td><td>${cCount}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+document.getElementById('import-save-btn').addEventListener('click', async () => {
+  const date = document.getElementById('import-date').value || todayStr();
+  const existing = STATE.daily[date] || { metrics: {}, collectionsCumulative: {} };
+  const rec = { metrics: Object.assign({}, existing.metrics), collectionsCumulative: Object.assign({}, existing.collectionsCumulative) };
+  ['task', 'call', 'succ'].forEach(k => {
+    const p = pendingImports[k];
+    if (!p) return;
+    Object.entries(p.data).forEach(([name, arr]) => {
+      rec.metrics[name] = rec.metrics[name] || { task: new Array(24).fill(0), call: new Array(24).fill(0), succ: new Array(24).fill(0) };
+      rec.metrics[name][k] = arr;
+    });
+  });
+  if (pendingImports.coll) {
+    Object.entries(pendingImports.coll.data).forEach(([name, v]) => { rec.collectionsCumulative[name] = v; });
+  }
+  await persistDay(date, rec);
+  pendingImports = { task: null, call: null, succ: null, coll: null };
+  document.getElementById('import-paste').value = '';
+  document.getElementById('import-preview').innerHTML = '';
+  document.getElementById('import-status').textContent = '';
+  renderImportPending();
+  renderImportLoggedDates();
+  toast(`Saved data for ${date}`, 'success');
 });
+
+function renderImport() {
+  const dateEl = document.getElementById('import-date');
+  if (!dateEl.value) dateEl.value = todayStr();
+  document.querySelectorAll('#import-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.metric === importMetric));
+  document.getElementById('import-slot-title').textContent = importMetric === 'coll'
+    ? 'Collections \u2014 cumulative CSV (Consultant, Total)'
+    : `${METRIC_LABELS[importMetric]} \u2014 hourly CSV (Agent, 00..23)`;
+  renderImportPreview(pendingImports[importMetric]);
+  renderImportPending();
+  renderImportLoggedDates();
+}
+
+// ===================== RENDER: REPORTS =====================
+let reportType = 'eod';
+document.getElementById('report-type-tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab-btn'); if (!b) return;
+  document.querySelectorAll('#report-type-tabs .tab-btn').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); reportType = b.dataset.report; renderReports();
+});
+
+function renderReportPeriodPicker() {
+  const el = document.getElementById('report-period-picker');
+  if (reportType === 'eod') {
+    el.innerHTML = `<div class="field" style="min-width:180px;margin-bottom:0;"><label>Date</label><input type="date" id="report-date" value="${todayStr()}"></div>
+      <button class="btn btn-primary" id="report-generate-btn">Generate Report</button>`;
+  } else if (reportType === 'weekly') {
+    el.innerHTML = `<div class="field" style="min-width:180px;margin-bottom:0;"><label>Any date in the week</label><input type="date" id="report-date" value="${todayStr()}"></div>
+      <button class="btn btn-primary" id="report-generate-btn">Generate Report</button>`;
+  } else {
+    const cycles = [...STATE.cycles].sort((a, b) => b.start.localeCompare(a.start));
+    el.innerHTML = `<div class="field" style="min-width:240px;margin-bottom:0;"><label>Cycle</label>
+      <select id="report-cycle-select">${cycles.map(c => `<option value="${c.id}">${c.start} \u2192 ${c.end || 'open (current)'}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" id="report-generate-btn">Generate Report</button>`;
+  }
+  document.getElementById('report-generate-btn').addEventListener('click', generateReport);
+}
+
+function periodDatesForReport() {
+  if (reportType === 'eod') {
+    const d = document.getElementById('report-date').value || todayStr();
+    return { dates: loggedDates([d]), refDate: d, label: d };
+  }
+  if (reportType === 'weekly') {
+    const d = document.getElementById('report-date').value || todayStr();
+    const start = isoWeekStart(d), end = isoWeekEnd(d);
+    return { dates: loggedDates(enumerateDates(start, end)), refDate: d, label: `${start} \u2192 ${end}` };
+  }
+  const cid = document.getElementById('report-cycle-select').value;
+  const cyc = STATE.cycles.find(c => c.id === cid) || currentCycle();
+  const end = cyc.end || todayStr();
+  return { dates: loggedDates(enumerateDates(cyc.start, end)), refDate: end, label: `${cyc.start} \u2192 ${cyc.end || 'open'}` };
+}
+
+function generateReport() {
+  const { dates, refDate, label } = periodDatesForReport();
+  const names = activeNames();
+  const rows = names.map(n => rangeStats(STATE, n, dates)).sort((a, b) => b.collections - a.collections);
+  const totalTask = rows.reduce((a, r) => a + r.totalTask, 0);
+  const totalCall = rows.reduce((a, r) => a + r.totalCall, 0);
+  const totalSucc = rows.reduce((a, r) => a + r.totalSucc, 0);
+  const totalColl = rows.reduce((a, r) => a + r.collections, 0);
+  const f = funnelHtml(totalTask, totalCall, totalSucc, totalColl);
+  const wk = weeklyComparisonRows(refDate);
+  const top = rows[0];
+  const mostImproved = wk.filter(r => r.prev.collections > 0 && r.cur.collections > 0).sort((a, b) => b.improvement - a.improvement)[0];
+  const focusRows = names.map(n => ({ n, p: agentPatternSummary(STATE, activeRoster(), n, refDate) })).filter(x => x.p.confirmed.some(k => WEAKNESS_KEYS.includes(k)));
+
+  const typeLabel = reportType === 'eod' ? 'End of Day Report' : reportType === 'weekly' ? 'Weekly Report' : 'Cycle Report';
+
+  let text = `${typeLabel} \u2014 ${label}\n\n`;
+  text += `Team totals: ${fmtNum(totalTask)} task attempts, ${fmtNum(totalCall)} call attempts, ${fmtNum(totalSucc)} successful connects (${fmtPct(f.successRate)} success rate), ${fmtUGX(totalColl)} collected.\n\n`;
+  text += `Pipeline: Task Attempts \u2192 Call Attempts at ${fmtPct(f.dialRate)}, Call Attempts \u2192 Successful Connects at ${fmtPct(f.successRate)}.\n\n`;
+  if (top) text += `Top performer: ${top.agent} \u2014 ${fmtUGX(top.collections)} collected.\n`;
+  if (mostImproved) text += `Most improved: ${mostImproved.name} \u2014 up ${mostImproved.improvement.toFixed(0)}% vs the prior week.\n`;
+  text += `\nLeaderboard:\n` + rows.map((r, i) => `${i + 1}. ${r.agent} \u2014 ${fmtUGX(r.collections)} (${fmtPct(r.successRate)} success rate)`).join('\n') + '\n';
+  if (focusRows.length) {
+    text += `\nNeeds focus:\n` + focusRows.map(x => {
+      const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k));
+      const s = rangeStats(STATE, x.n, dates);
+      return `- ${x.n}: ${FLAG_TEXT[key].weakness(s)} ${FLAG_TEXT[key].ask}`;
+    }).join('\n') + '\n';
+  }
+  text += `\nPer-agent detail:\n`;
+  rows.forEach(r => {
+    const prog = cycleProgressFor(r.agent, refDate);
+    text += `\n${r.agent}: ${fmtNum(r.totalTask)} task / ${fmtNum(r.totalCall)} calls / ${fmtNum(r.totalSucc)} connects / ${fmtUGX(r.collections)} collected. Cycle: ${fmtUGX(prog.cycleToDate)} of ${fmtUGX(prog.target)} (${prog.pct.toFixed(0)}%).`;
+  });
+
+  const html = `
+    <div class="card"><div class="card-header">${typeLabel} \u2014 ${label}</div>
+      <div class="metrics">
+        <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(totalTask)}</div></div>
+        <div class="metric"><div class="mlabel">Call Attempts</div><div class="mval">${fmtNum(totalCall)}</div></div>
+        <div class="metric"><div class="mlabel">Successful Connects</div><div class="mval">${fmtNum(totalSucc)}</div></div>
+        <div class="metric good"><div class="mlabel">Collections</div><div class="mval">${fmtUGX(totalColl)}</div></div>
+      </div>
+      ${f.html}
+    </div>
+    <div class="card"><div class="card-header">Leaderboard</div><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Collections</th><th>Success Rate</th><th>vs Target</th></tr></thead>
+      <tbody>${rows.map((r, i) => { const prog = cycleProgressFor(r.agent, refDate); return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${fmtUGX(r.collections)}</td><td>${fmtPct(r.successRate)}</td><td>${prog.pct.toFixed(0)}%</td></tr>`; }).join('')}</tbody></table></div></div>
+    ${focusRows.length ? `<div class="card"><div class="card-header">Needs Focus</div>${focusRows.map(x => { const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k)); const s = rangeStats(STATE, x.n, dates); return `<div class="debrief-card"><b>${escapeHtml(x.n)}</b><div class="need-line">${escapeHtml(FLAG_TEXT[key].weakness(s))} ${escapeHtml(FLAG_TEXT[key].ask)}</div></div>`; }).join('')}</div>` : ''}
+    <div class="copy-line"><button class="btn btn-primary" id="report-copy-btn">Copy Full Report</button></div>
+  `;
+  document.getElementById('report-output').innerHTML = html;
+  document.getElementById('report-copy-btn').addEventListener('click', () => copyText(text, typeLabel));
+}
+
+function renderReports() {
+  document.querySelectorAll('#report-type-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.report === reportType));
+  renderReportPeriodPicker();
+  document.getElementById('report-output').innerHTML = '<div class="empty-note">Pick a period and hit Generate Report.</div>';
+}
+
+// ===================== RENDER: ROSTER =====================
+function renderRoster() {
+  const active = activeRoster();
+  document.getElementById('roster-count').textContent = active.length;
+  document.getElementById('roster-table').innerHTML = `<table><thead><tr><th>Agent</th><th>Cycle Target (UGX)</th><th></th></tr></thead><tbody>
+    ${active.map(a => `<tr>
+        <td class="name-cell">${escapeHtml(a.name)}</td>
+        <td><input type="number" step="100000" style="max-width:160px;" value="${a.target !== null && a.target !== undefined ? a.target : ''}" placeholder="${STATE.settings.defaultTarget}" data-target-for="${escapeHtml(a.name)}"></td>
+        <td><button class="btn btn-red btn-sm" data-remove="${escapeHtml(a.name)}">Remove</button></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+
+  document.querySelectorAll('[data-target-for]').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const name = inp.dataset.targetFor;
+      const ag = STATE.roster.find(x => x.name === name);
+      ag.target = inp.value ? Number(inp.value) : null;
+      await persistRoster();
+      toast('Target updated', 'success');
+    });
+  });
+  document.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.remove;
+      if (!confirm(`Remove ${name} from the active roster? Their logged history stays intact, but they'll drop out of new CSV matching and standings.`)) return;
+      const ag = STATE.roster.find(x => x.name === name);
+      ag.active = false;
+      await persistRoster();
+      renderRoster();
+      toast(`${name} removed from active roster`, 'success');
+    });
+  });
+
+  const removed = STATE.roster.filter(a => !a.active);
+  document.getElementById('roster-removed').innerHTML = removed.length
+    ? `<div class="chip-list">${removed.map(a => `<span class="chip">${escapeHtml(a.name)}<button data-restore="${escapeHtml(a.name)}" title="Restore">&#8634;</button></span>`).join('')}</div>`
+    : '<div class="empty-note">No removed agents.</div>';
+  document.querySelectorAll('[data-restore]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ag = STATE.roster.find(x => x.name === btn.dataset.restore);
+      ag.active = true;
+      await persistRoster();
+      renderRoster();
+      toast(`${ag.name} restored to active roster`, 'success');
+    });
+  });
+}
+
+document.getElementById('roster-add-btn').addEventListener('click', async () => {
+  const nameInput = document.getElementById('roster-add-name');
+  const targetInput = document.getElementById('roster-add-target');
+  const name = nameInput.value.trim().replace(/\s+/g, ' ');
+  if (!name) { toast('Enter a name first', 'error'); return; }
+  if (STATE.roster.some(a => normName(a.name) === normName(name))) {
+    const existing = STATE.roster.find(a => normName(a.name) === normName(name));
+    existing.active = true;
+    if (targetInput.value) existing.target = Number(targetInput.value);
+  } else {
+    STATE.roster.push({ name, target: targetInput.value ? Number(targetInput.value) : null, active: true });
+  }
+  await persistRoster();
+  nameInput.value = ''; targetInput.value = '';
+  renderRoster();
+  toast(`${name} added`, 'success');
+});
+
+// ===================== RENDER: SETTINGS =====================
+function renderSettings() {
+  document.getElementById('set-cycle-start-day').value = STATE.settings.cycleStartDay;
+  document.getElementById('set-default-target').value = STATE.settings.defaultTarget;
+  document.getElementById('set-lunch-hours').value = STATE.settings.lunchHours.join(', ');
+  document.getElementById('set-flag-window').value = STATE.settings.flagWindow;
+  document.getElementById('set-flag-threshold').value = STATE.settings.flagThreshold;
+
+  const cyc = currentCycle();
+  document.getElementById('current-cycle-info').textContent = `Current cycle: ${cyc.start} \u2192 ${cyc.end || 'open'}.`;
+
+  const sorted = [...STATE.cycles].sort((a, b) => b.start.localeCompare(a.start));
+  document.getElementById('cycle-history').innerHTML = `<table><thead><tr><th>Start</th><th>End</th><th>Status</th></tr></thead><tbody>
+    ${sorted.map(c => `<tr><td class="name-cell">${c.start}</td><td>${c.end || '\u2014'}</td><td>${c.end ? '<span class="pill pill-grey">Closed</span>' : '<span class="pill pill-green">Open</span>'}</td></tr>`).join('')}
+    </tbody></table>`;
+
+  document.getElementById('storage-info').textContent = usingDb
+    ? 'Synced to shared storage — this data is available from any device you open this page on, and stays in sync in real time.'
+    : 'Saved to this browser only (shared sync unavailable right now). Data will not follow you to another device or browser until sync is available.';
+}
+
+document.getElementById('save-cycle-settings-btn').addEventListener('click', async () => {
+  STATE.settings.cycleStartDay = Number(document.getElementById('set-cycle-start-day').value) || 11;
+  STATE.settings.defaultTarget = Number(document.getElementById('set-default-target').value) || 0;
+  await persistSettings();
+  renderAll();
+  toast('Cycle settings saved', 'success');
+});
+
+document.getElementById('save-rules-btn').addEventListener('click', async () => {
+  const hrs = document.getElementById('set-lunch-hours').value.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+  STATE.settings.lunchHours = hrs.length ? hrs : [13, 14];
+  STATE.settings.flagWindow = Number(document.getElementById('set-flag-window').value) || 5;
+  STATE.settings.flagThreshold = Number(document.getElementById('set-flag-threshold').value) || 3;
+  await persistSettings();
+  renderAll();
+  toast('Analysis rules saved', 'success');
+});
+
+document.getElementById('close-cycle-btn').addEventListener('click', async () => {
+  const cyc = currentCycle();
+  if (!confirm(`Close the current cycle (${cyc.start} \u2192 today) and start a new one from tomorrow?`)) return;
+  const today = todayStr();
+  const idx = STATE.cycles.findIndex(c => c.id === cyc.id);
+  if (idx >= 0) STATE.cycles[idx] = Object.assign({}, STATE.cycles[idx], { end: today });
+  else STATE.cycles.push({ id: cyc.start, start: cyc.start, end: today });
+  const newStart = addDays(today, 1);
+  STATE.cycles.push({ id: newStart, start: newStart, end: null });
+  await persistCycles();
+  renderAll();
+  toast('Cycle closed \u2014 new cycle started', 'success');
+});
+
+// ===================== INIT =====================
+function afterStateLoaded() {
+  const today = todayStr();
+  document.getElementById('debrief-date').value = today;
+  document.getElementById('import-date').value = today;
+  saveLocal();
+  renderAll();
+}
+
+initStorage();
 </script>
 </body>
 </html>
