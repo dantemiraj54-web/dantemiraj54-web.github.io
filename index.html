@@ -1618,23 +1618,51 @@ function renderImportPending() {
   document.getElementById('import-pending-summary').textContent = `${readyCount}/4 slots ready`;
   list.innerHTML = keys.map(k => {
     const p = pendingImports[k];
-    return `<div class="row" style="margin-bottom:6px;"><span class="pill ${p ? 'pill-green' : 'pill-grey'}" style="min-width:170px;text-align:center;">${METRIC_LABELS[k]}</span>
-      <span class="small muted">${p ? p.matchedRows + ' agents parsed' : 'not uploaded yet'}</span></div>`;
+    return `<div class="row" style="margin-bottom:6px;align-items:center;"><span class="pill ${p ? 'pill-green' : 'pill-grey'}" style="min-width:170px;text-align:center;">${METRIC_LABELS[k]}</span>
+      <span class="small muted">${p ? p.matchedRows + ' agents parsed' : 'not uploaded yet'}</span>
+      ${p ? `<button class="btn btn-sm btn-red" data-clear-pending="${k}">Clear</button>` : ''}</div>`;
   }).join('');
   document.getElementById('import-save-btn').disabled = readyCount === 0;
+  list.querySelectorAll('[data-clear-pending]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.clearPending;
+      pendingImports[k] = null;
+      if (importMetric === k) { document.getElementById('import-paste').value = ''; document.getElementById('import-status').textContent = ''; renderImportPreview(null); }
+      renderImportPending();
+      toast(`Cleared ${METRIC_LABELS[k]} \u2014 not saved`, 'success');
+    });
+  });
+}
+
+async function deleteLoggedDay(date) {
+  delete STATE.daily[date];
+  saveLocal();
+  if (usingDb) {
+    try { await dbNs.collection('daily').doc(date).delete(); }
+    catch (e) { toast('Could not remove from shared storage', 'error'); }
+  }
 }
 
 function renderImportLoggedDates() {
   const dates = Object.keys(STATE.daily).sort().reverse().slice(0, 30);
   const el = document.getElementById('import-logged-dates');
   if (!dates.length) { el.innerHTML = '<div class="empty-note">Nothing logged yet.</div>'; return; }
-  el.innerHTML = `<table><thead><tr><th>Date</th><th>Agents (metrics)</th><th>Agents (collections)</th></tr></thead><tbody>
+  el.innerHTML = `<table><thead><tr><th>Date</th><th>Agents (metrics)</th><th>Agents (collections)</th><th></th></tr></thead><tbody>
     ${dates.map(d => {
       const rec = STATE.daily[d];
       const mCount = rec.metrics ? Object.keys(rec.metrics).length : 0;
       const cCount = rec.collectionsCumulative ? Object.keys(rec.collectionsCumulative).length : 0;
-      return `<tr><td class="name-cell">${d}</td><td>${mCount}</td><td>${cCount}</td></tr>`;
+      return `<tr><td class="name-cell">${d}</td><td>${mCount}</td><td>${cCount}</td><td><button class="btn btn-sm btn-red" data-delete-day="${d}">Remove</button></td></tr>`;
     }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-delete-day]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const d = btn.dataset.deleteDay;
+      if (!confirm(`Remove all data logged for ${d}? This can't be undone.`)) return;
+      await deleteLoggedDay(d);
+      renderImportLoggedDates();
+      toast(`Removed data for ${d}`, 'success');
+    });
+  });
 }
 
 document.getElementById('import-save-btn').addEventListener('click', async () => {
