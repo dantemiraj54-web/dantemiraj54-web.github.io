@@ -642,16 +642,15 @@ function hourLabel(h) {
 }
 
 function strongWeakHours(hourArr, settings) {
-  const work = settings.workHours;
-  const candidates = work
+  const excluded = new Set([...(settings.lunchHours || []), settings.partialHour]);
+  const candidates = settings.workHours
     .map(h => ({ h, v: hourArr[h] || 0 }))
-    .filter(x => !settings.lunchHours.includes(x.h));
+    .filter(x => !excluded.has(x.h));
   if (!candidates.length) return { strongest: null, weakest: null };
-  const nonZero = candidates.filter(x => x.v > 0);
-  const pool = nonZero.length ? nonZero : candidates;
-  let strongest = pool[0], weakest = candidates[0];
-  pool.forEach(x => { if (x.v > strongest.v) strongest = x; });
-  candidates.forEach(x => { if (x.v < weakest.v) weakest = x; });
+  const totalActivity = candidates.reduce((a, x) => a + x.v, 0);
+  if (totalActivity === 0) return { strongest: null, weakest: null };
+  let strongest = candidates[0], weakest = candidates[0];
+  candidates.forEach(x => { if (x.v > strongest.v) strongest = x; if (x.v < weakest.v) weakest = x; });
   return { strongest, weakest };
 }
 
@@ -939,42 +938,87 @@ function renderAll() {
 // ===================== NARRATIVE / FEEDBACK ENGINE =====================
 const WEAKNESS_KEYS = ['overdialing', 'skimmingTasks', 'talkingNotClosing', 'lowVolume'];
 const STRENGTH_KEYS = ['strongConnectRate', 'strongCloser', 'highVolume'];
+const FLAG_LABEL = {
+  overdialing: 'over-dialing without picking up connects',
+  skimmingTasks: 'skimming through tasks instead of calling them',
+  talkingNotClosing: 'talking but not closing firmly',
+  lowVolume: 'low call volume',
+  strongConnectRate: 'connect rate',
+  strongCloser: 'closing value per connect',
+  highVolume: 'attempt volume'
+};
+
+function estimateImpact(key, s, bench) {
+  const collPerSucc = bench.medianCollPerSucc || s.collPerSucc || 0;
+  let extra = 0;
+  if (key === 'overdialing') {
+    const gap = Math.max(0, (bench.medianSuccessRate - s.successRate) / 100);
+    extra = gap * s.totalCall * collPerSucc;
+  } else if (key === 'skimmingTasks') {
+    const gap = Math.max(0, 0.7 - s.dialRate / 100);
+    extra = gap * s.totalTask * (s.successRate / 100) * collPerSucc;
+  } else if (key === 'talkingNotClosing') {
+    extra = Math.max(0, (bench.medianCollPerSucc - s.collPerSucc)) * s.totalSucc;
+  } else if (key === 'lowVolume') {
+    const gap = Math.max(0, bench.medianCall - s.totalCall);
+    extra = gap * (s.successRate / 100) * collPerSucc;
+  }
+  return Math.round(extra);
+}
 
 const FLAG_TEXT = {
   overdialing: {
-    weakness: s => `Dialing hard \u2014 ${fmtNum(s.totalCall)} call attempts \u2014 but connects aren't following: success rate is ${fmtPct(s.successRate)}, well under the team's pace. Reads like speed over precision.`,
-    ask: `Slow down and work the list with intent. A shorter, better-picked list beats a long thin one.`
+    weakness: s => `You are over-dialing \u2014 ${fmtNum(s.totalCall)} call attempts \u2014 but connects aren't following: success rate is only ${fmtPct(s.successRate)}, well under the team's pace. This is speed over precision, and it's why the collections aren't matching the effort.`,
+    ask: `Slow down and work the list with intent \u2014 pick fewer, better accounts and give each one a real shot instead of racing through the list.`
   },
   skimmingTasks: {
-    weakness: s => `Moving through a lot of accounts (${fmtNum(s.totalTask)} task attempts) but only turning ${fmtPct(s.dialRate)} of them into an actual dial \u2014 accounts are being opened and skipped rather than called.`,
-    ask: `Match task attempts to call attempts \u2014 open an account, call it, then move on.`
+    weakness: s => `You are skimming through tasks \u2014 ${fmtNum(s.totalTask)} accounts opened but only ${fmtPct(s.dialRate)} of them actually get dialed. Accounts are being touched and dropped, not called \u2014 that's a direct hole in your collections.`,
+    ask: `Match task attempts to call attempts \u2014 open an account, call it before you move to the next one.`
   },
   talkingNotClosing: {
-    weakness: s => `Getting people on the phone \u2014 success rate ${fmtPct(s.successRate)} \u2014 but the value per successful connect (${fmtUGX(s.collPerSucc)}) is below the team's median. Conversations are happening but they're not firm enough to convert into payment.`,
-    ask: `Tighten the ask on every connect \u2014 a specific amount and a specific date, every time, not a soft promise.`
+    weakness: s => `You are talking but not closing \u2014 your connect rate (${fmtPct(s.successRate)}) is fine, but the value per successful connect (${fmtUGX(s.collPerSucc)}) is below the team's median. You're reaching people, the conversations just aren't firm enough to turn into payment.`,
+    ask: `Tighten the ask on every connect \u2014 get a specific amount and a specific date, every time, not a soft promise.`
   },
   lowVolume: {
-    weakness: s => `Call attempts (${fmtNum(s.totalCall)}) are running below the team's typical volume.`,
-    ask: `Push attempt volume up \u2014 more dials means more shots at a connect.`
+    weakness: s => `You are weak on volume \u2014 ${fmtNum(s.totalCall)} call attempts, below the team's typical pace. Fewer dials means fewer chances at a connect, and that's showing up directly in your collections.`,
+    ask: `Push attempt volume up \u2014 more dials, more shots at a connect.`
   },
-  strongConnectRate: { strength: s => `Connect rate is strong at ${fmtPct(s.successRate)}, well above the team's pace.` },
-  strongCloser: { strength: s => `Every successful connect is converting well \u2014 averaging ${fmtUGX(s.collPerSucc)} per connect, above the team median.` },
-  highVolume: { strength: s => `Strong attempt volume \u2014 ${fmtNum(s.totalCall)} calls, above the team's typical pace.` }
+  strongConnectRate: {
+    strength: s => `You are strong on connect rate \u2014 ${fmtPct(s.successRate)}, well above the team's pace.`,
+    keepAsk: `Keep working the same list discipline that's getting you through \u2014 don't dilute it by rushing.`
+  },
+  strongCloser: {
+    strength: s => `You are strong on closing \u2014 every successful connect is converting well, averaging ${fmtUGX(s.collPerSucc)} per connect, above the team median.`,
+    keepAsk: `Keep asking firmly for a specific amount and date on every connect \u2014 that's exactly what's driving this.`
+  },
+  highVolume: {
+    strength: s => `You are strong on volume \u2014 ${fmtNum(s.totalCall)} calls, above the team's typical pace.`,
+    keepAsk: `Keep the dial count up \u2014 it's giving you more shots than most of the team gets.`
+  }
 };
 
 function hourNoteText(s) {
   const sw = strongWeakHours(s.succ, STATE.settings);
-  if (!sw.strongest) return 'Not enough hourly data yet to call a strongest or weakest hour.';
-  let out = `Strongest hour: <b>${hourLabel(sw.strongest.h)}</b> with ${sw.strongest.v} successful connect${sw.strongest.v === 1 ? '' : 's'}. `;
-  if (sw.weakest.v === 0) {
-    out += sw.weakest.h === STATE.settings.partialHour
-      ? `Quietest working hour: <b>${hourLabel(sw.weakest.h)}</b> \u2014 expected, that's only the ~15 minutes before the day gets going.`
-      : `Quietest working hour: <b>${hourLabel(sw.weakest.h)}</b> \u2014 no successful connects logged there.`;
-  } else {
-    out += `Lightest hour: <b>${hourLabel(sw.weakest.h)}</b> with ${sw.weakest.v} successful connect${sw.weakest.v === 1 ? '' : 's'}.`;
+  if (!sw.strongest) return 'No successful connects logged yet for this period.';
+  let out = `Strongest hour: <b>${hourLabel(sw.strongest.h)}</b> with ${sw.strongest.v} successful connect${sw.strongest.v === 1 ? '' : 's'}.`;
+  if (sw.weakest.h !== sw.strongest.h) {
+    out += ` Weakest hour: <b>${hourLabel(sw.weakest.h)}</b> with ${sw.weakest.v} successful connect${sw.weakest.v === 1 ? '' : 's'}.`;
   }
-  out += ` <span class="muted">(1pm\u20133pm isn't counted here \u2014 that's the Arrangements/Balance Transfer block, where connects naturally go quiet for everyone.)</span>`;
   return out;
+}
+
+function peakHourConsistency(agent, dates) {
+  const counts = {};
+  let validDays = 0;
+  dates.forEach(date => {
+    const s = dayStats(STATE, agent, date);
+    const sw = strongWeakHours(s.succ, STATE.settings);
+    if (sw.strongest) { validDays++; counts[sw.strongest.h] = (counts[sw.strongest.h] || 0) + 1; }
+  });
+  if (validDays < 3) return null;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (!top) return null;
+  return { hour: Number(top[0]), days: Number(top[1]), validDays };
 }
 
 function cycleProgressFor(agent, date) {
@@ -991,6 +1035,30 @@ function cycleProgressFor(agent, date) {
   return { cyc, cycleToDate, target, pct, daysLeft, remaining, paceNeeded, projected, totalCycleDays, daysElapsed };
 }
 
+function collectionsProgressLine(agent, date) {
+  const cyc = cycleForDate(STATE, date);
+  const cur = cumOn(STATE, agent, date);
+  if (cur === undefined) return null;
+  const priorDates = loggedDatesInRange(STATE, cyc.start, addDays(date, -1)).filter(d => cumOn(STATE, agent, d) !== undefined);
+  if (!priorDates.length) return `You're opening the cycle at ${fmtUGX(cur)} collected.`;
+  const prevDate = priorDates[priorDates.length - 1];
+  const prev = cumOn(STATE, agent, prevDate);
+  const delta = cur - prev;
+  const sameDayBefore = prevDate === addDays(date, -1);
+  if (delta <= 0) return `You were at ${fmtUGX(prev)} and you're still at ${fmtUGX(cur)} \u2014 nothing new landed${sameDayBefore ? ' today' : ' since ' + prevDate}.`;
+  return `You were at ${fmtUGX(prev)}, you're now at ${fmtUGX(cur)} \u2014 that's ${fmtUGX(delta)} collected${sameDayBefore ? ' today' : ' since ' + prevDate}.`;
+}
+
+function concreteDailyAsk(s, bench, prog) {
+  if (prog.paceNeeded <= 0) return null;
+  const collPerSucc = bench.medianCollPerSucc || s.collPerSucc || 0;
+  const successRate = (s.successRate || bench.medianSuccessRate || 20) / 100;
+  if (!collPerSucc) return null;
+  const successesNeeded = Math.max(1, Math.ceil(prog.paceNeeded / collPerSucc));
+  const callsNeeded = successRate > 0 ? Math.ceil(successesNeeded / successRate) : null;
+  return `To stay on pace, aim for about ${successesNeeded} successful connect${successesNeeded === 1 ? '' : 's'} today${callsNeeded ? ` \u2014 roughly ${callsNeeded} calls to get there at your current connect rate` : ''}.`;
+}
+
 function agentDebrief(agent, date) {
   const s = dayStats(STATE, agent, date);
   const bench = teamBenchmarksForDate(STATE, activeRoster(), date);
@@ -1001,8 +1069,17 @@ function agentDebrief(agent, date) {
   pattern.confirmed.forEach(k => {
     const def = FLAG_TEXT[k];
     if (!def) return;
-    if (def.strength) strengths.push(def.strength(s));
-    if (def.weakness) needs.push({ text: def.weakness(s), ask: def.ask });
+    if (def.strength) {
+      strengths.push(`${def.strength(s)} You already have this as a strength \u2014 it's a real part of why you've collected ${fmtUGX(prog.cycleToDate)} this cycle. ${def.keepAsk}`);
+    }
+    if (def.weakness) {
+      const impact = estimateImpact(k, s, bench);
+      needs.push({
+        text: def.weakness(s),
+        ask: def.ask,
+        impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : ''
+      });
+    }
   });
   pattern.emerging.forEach(k => {
     const def = FLAG_TEXT[k];
@@ -1011,12 +1088,24 @@ function agentDebrief(agent, date) {
     if (txt) emerging.push(`Showing up ${pattern.counts[k]} of the last ${pattern.windowDates.length} working days \u2014 not yet a confirmed pattern: ${txt}`);
   });
   if (!strengths.length && s.logged && s.totalCall > 0) {
-    strengths.push(`Showed up and put in the work \u2014 ${fmtNum(s.totalCall)} call attempts, ${fmtNum(s.totalSucc)} successful connects today.`);
+    strengths.push(`You showed up and put in the work \u2014 ${fmtNum(s.totalCall)} call attempts, ${fmtNum(s.totalSucc)} successful connects today.`);
+  }
+
+  const consistency = peakHourConsistency(agent, pattern.windowDates);
+  let consistencyNote = null;
+  if (consistency) {
+    if (consistency.days >= STATE.settings.flagThreshold) {
+      consistencyNote = `You consistently convert best around ${hourLabel(consistency.hour)} \u2014 that's a real pattern, not luck. Protect that hour every day.`;
+    } else if (consistency.validDays >= STATE.settings.flagWindow - 1) {
+      consistencyNote = `Your best hour keeps moving day to day \u2014 only landed on ${hourLabel(consistency.hour)} ${consistency.days} of the last ${consistency.validDays} days. Pick the hour you know you convert in and defend it daily instead of spreading thin.`;
+    }
   }
 
   const statusWord = prog.pct >= 100 ? 'ahead of target' : prog.pct >= 75 ? 'on pace' : prog.pct >= 40 ? 'behind pace' : 'well behind pace';
+  const progressLine = collectionsProgressLine(agent, date);
+  const dailyAsk = concreteDailyAsk(s, bench, prog);
 
-  return { agent, date, s, bench, pattern, prog, strengths, needs, emerging, statusWord };
+  return { agent, date, s, bench, pattern, prog, strengths, needs, emerging, statusWord, consistencyNote, progressLine, dailyAsk };
 }
 
 function agentDebriefText(d) {
@@ -1027,23 +1116,22 @@ function agentDebriefText(d) {
     lines.push(`No activity logged for ${d.agent} on ${d.date} yet.`);
     return lines.join('\n');
   }
-  if (d.strengths.length) {
-    d.strengths.forEach(t => lines.push(`You're doing this: ${t}`));
-  }
-  if (d.needs.length) {
-    d.needs.forEach(n => lines.push(`I need this: ${n.text} ${n.ask}`));
-  }
+  if (d.progressLine) { lines.push(d.progressLine); lines.push(''); }
+  if (d.strengths.length) d.strengths.forEach(t => lines.push(`You're doing this: ${t}`));
+  if (d.needs.length) d.needs.forEach(n => lines.push(`I need this: ${n.text} ${n.ask} ${n.impact}`.trim()));
+  if (d.consistencyNote) { lines.push(''); lines.push(d.consistencyNote); }
   lines.push('');
-  lines.push(hourNoteText(d.s).replace(/<\/?b>/g, '').replace(/<span class="muted">|<\/span>/g, ''));
+  lines.push(hourNoteText(d.s).replace(/<\/?b>/g, ''));
   lines.push('');
   lines.push(`Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.`);
-  lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left \u2014 need about ${fmtUGX(d.prog.paceNeeded)}/day to hit target.`);
+  lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left.`);
+  if (d.dailyAsk) lines.push(d.dailyAsk);
   if (d.emerging.length) {
     lines.push('');
     d.emerging.forEach(t => lines.push(`Watching: ${t}`));
   }
   lines.push('');
-  const focus = d.needs.length ? d.needs[0].ask : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
+  const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
   lines.push(`Today's focus: ${focus}`);
   return lines.join('\n');
 }
@@ -1069,8 +1157,7 @@ function renderDebrief() {
   const totalColl = loggedList.reduce((a, x) => a + (x.collections || 0), 0);
   const top = loggedList.slice().sort((a, b) => (b.collections || 0) - (a.collections || 0))[0];
 
-  const flaggedAgents = names.map(n => ({ n, p: agentPatternSummary(STATE, activeRoster(), n, date) }))
-    .filter(x => x.p.confirmed.some(k => WEAKNESS_KEYS.includes(k)));
+  const split = dailyPerformanceSplit(date, loggedList);
 
   document.getElementById('debrief-team-summary').innerHTML = `
     <div class="metrics">
@@ -1082,7 +1169,7 @@ function renderDebrief() {
     </div>
     <div class="card" style="background:var(--bg3);">
       <div class="card-header">Team read for ${date}</div>
-      <div class="debrief-body">${teamDayNarrative(date, top, totalCall, totalSucc, flaggedAgents)}</div>
+      <div class="debrief-body">${teamDayNarrative(date, top, totalCall, totalSucc, split)}</div>
     </div>`;
 
   // individual debriefs
@@ -1097,11 +1184,14 @@ function renderDebrief() {
     ].join('');
     const bodyHtml = [
       !d.s.logged ? `<span class="muted">No activity logged for ${escapeHtml(n)} on ${date} yet.</span>` : null,
+      d.progressLine ? `<div style="margin-bottom:6px;">${escapeHtml(d.progressLine)}</div>` : null,
       ...d.strengths.map(t => `<div class="you-line">You're doing this: ${escapeHtml(t)}</div>`),
-      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)}</div>`),
+      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)} ${escapeHtml(x.impact)}</div>`),
+      d.consistencyNote ? `<div style="margin-top:8px;">${escapeHtml(d.consistencyNote)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
-      d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. Pace needed: ${fmtUGX(d.prog.paceNeeded)}/day for the ${d.prog.daysLeft} day(s) left.</div>` : null,
+      d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
+      d.dailyAsk ? `<div style="margin-top:4px;">${escapeHtml(d.dailyAsk)}</div>` : null,
       d.emerging.length ? `<div style="margin-top:8px;" class="muted small">${d.emerging.map(escapeHtml).join('<br>')}</div>` : null
     ].filter(Boolean).join('');
 
@@ -1121,15 +1211,31 @@ function renderDebrief() {
   });
 }
 
-function teamDayNarrative(date, top, totalCall, totalSucc, flaggedAgents) {
+function dailyPerformanceSplit(date, loggedList) {
+  const withActivity = loggedList.filter(r => r.totalCall > 0);
+  const noActivity = loggedList.filter(r => !r.totalCall);
+  if (!withActivity.length) return { strong: [], weak: [], noActivity };
+  const sorted = withActivity.slice().sort((a, b) => (b.collections || 0) - (a.collections || 0));
+  const n = sorted.length;
+  const cut = Math.max(1, Math.round(n / 3));
+  const strong = sorted.slice(0, cut);
+  const weak = n > cut ? sorted.slice(-cut).filter(r => !strong.includes(r)) : [];
+  return { strong, weak, noActivity };
+}
+
+function teamDayNarrative(date, top, totalCall, totalSucc, split) {
   const parts = [];
   if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading the day with ${fmtUGX(top.collections || 0)} collected.`);
   const rate = totalCall ? (totalSucc / totalCall * 100) : 0;
   parts.push(`Team connect rate for the day is ${fmtPct(rate)}.`);
-  if (flaggedAgents.length) {
-    parts.push(`${flaggedAgents.length} agent${flaggedAgents.length === 1 ? '' : 's'} showing a confirmed coaching pattern this week: ${flaggedAgents.map(x => escapeHtml(x.n)).join(', ')} \u2014 see their cards below for the specific ask.`);
-  } else {
-    parts.push(`No agent has a confirmed coaching flag right now \u2014 patterns need to repeat across a few days before they're called, so keep an eye on the "Watching" notes below.`);
+  if (split.strong.length) {
+    parts.push(`Did strong today: ${split.strong.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
+  }
+  if (split.weak.length) {
+    parts.push(`Did weak today: ${split.weak.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
+  }
+  if (split.noActivity && split.noActivity.length) {
+    parts.push(`No dialing logged yet today for: ${split.noActivity.map(r => escapeHtml(r.agent)).join(', ')}.`);
   }
   return parts.join(' ');
 }
@@ -1388,10 +1494,11 @@ function renderAgentProfile() {
 
   const f = funnelHtml(r.totalTask, r.totalCall, r.totalSucc, r.collections);
 
+  const bench = teamBenchmarksForDate(STATE, activeRoster(), ref);
   const strengthsHtml = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k))
-    .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
+    .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))} You already have this as a strength. ${escapeHtml(FLAG_TEXT[k].keepAsk)}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
   const weaknessHtml = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k))
-    .map(k => `<div class="need-line">${escapeHtml(FLAG_TEXT[k].weakness(r))} ${escapeHtml(FLAG_TEXT[k].ask)}</div>`).join('') || '<div class="muted small">No confirmed coaching flag right now.</div>';
+    .map(k => { const impact = estimateImpact(k, r, bench); return `<div class="need-line">${escapeHtml(FLAG_TEXT[k].weakness(r))} ${escapeHtml(FLAG_TEXT[k].ask)}${impact > 0 ? ' Fix this and you\'re looking at roughly ' + fmtUGX(impact) + ' more toward target.' : ''}</div>`; }).join('') || '<div class="muted small">No confirmed coaching flag right now.</div>';
   const emergingHtml = pattern.emerging.map(k => {
     const def = FLAG_TEXT[k]; const txt = def.weakness ? def.weakness(r) : def.strength(r);
     return `<div class="muted small">Showing up ${pattern.counts[k]}/${pattern.windowDates.length} days: ${escapeHtml(txt)}</div>`;
