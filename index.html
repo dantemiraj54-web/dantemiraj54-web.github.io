@@ -420,7 +420,8 @@ function defaultSettings() {
     workHours: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     partialHour: 8,
     flagWindow: 5,
-    flagThreshold: 3
+    flagThreshold: 3,
+    rankWeights: { collections: 50, succ: 25, call: 15, task: 10 }
   };
 }
 
@@ -843,6 +844,21 @@ function targetFor(name) {
   if (a && a.target !== null && a.target !== undefined && a.target !== '') return Number(a.target);
   return STATE.settings.defaultTarget;
 }
+function computeWeightedScore(rows) {
+  const w = STATE.settings.rankWeights;
+  const maxTask = Math.max(1, ...rows.map(r => r.totalTask || 0));
+  const maxCall = Math.max(1, ...rows.map(r => r.totalCall || 0));
+  const maxSucc = Math.max(1, ...rows.map(r => r.totalSucc || 0));
+  const maxColl = Math.max(1, ...rows.map(r => r.collections || 0));
+  return rows.map(r => {
+    const score =
+      ((r.collections || 0) / maxColl) * w.collections +
+      ((r.totalSucc || 0) / maxSucc) * w.succ +
+      ((r.totalCall || 0) / maxCall) * w.call +
+      ((r.totalTask || 0) / maxTask) * w.task;
+    return Object.assign({}, r, { score: isFinite(score) ? score : 0 });
+  });
+}
 function currentCycle() {
   const today = fmtDate(new Date());
   return cycleForDate(STATE, today);
@@ -1155,7 +1171,8 @@ function renderDebrief() {
   const totalCall = loggedList.reduce((a, x) => a + x.totalCall, 0);
   const totalSucc = loggedList.reduce((a, x) => a + x.totalSucc, 0);
   const totalColl = loggedList.reduce((a, x) => a + (x.collections || 0), 0);
-  const top = loggedList.slice().sort((a, b) => (b.collections || 0) - (a.collections || 0))[0];
+  const scoredList = computeWeightedScore(loggedList);
+  const top = scoredList.slice().sort((a, b) => b.score - a.score)[0];
 
   const split = dailyPerformanceSplit(date, loggedList);
 
@@ -1332,14 +1349,15 @@ function renderDashboard() {
 
   // leaderboard
   document.getElementById('dash-leaderboard-range').textContent = periodLabel(dashPeriod, ref);
-  const board = activeNames().map(n => rangeStats(STATE, n, dates)).sort((a, b) => b.collections - a.collections);
+  const w = STATE.settings.rankWeights;
+  const board = computeWeightedScore(activeNames().map(n => rangeStats(STATE, n, dates))).sort((a, b) => b.score - a.score);
   document.getElementById('dash-leaderboard').innerHTML = `<table><thead><tr>
-      <th>#</th><th>Agent</th><th>Task</th><th>Calls</th><th>Succ. Connects</th><th>Success Rate</th><th>Collections</th><th>vs Target (cycle)</th>
+      <th>#</th><th>Agent</th><th>Task</th><th>Calls</th><th>Succ. Connects</th><th>Success Rate</th><th>Collections</th><th>vs Target (cycle)</th><th title="Weighted: Collections ${w.collections}%, Connects ${w.succ}%, Calls ${w.call}%, Tasks ${w.task}%">Score</th>
     </tr></thead><tbody>${board.map((r, i) => {
       const prog = cycleProgressFor(r.agent, ref);
       return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${fmtNum(r.totalTask)}</td><td>${fmtNum(r.totalCall)}</td>
         <td>${fmtNum(r.totalSucc)}</td><td>${fmtPct(r.successRate)}</td><td>${fmtUGX(r.collections)}</td>
-        <td class="${prog.pct >= 75 ? 'pos' : prog.pct >= 40 ? 'neutral' : 'neg'}">${prog.pct.toFixed(0)}%</td></tr>`;
+        <td class="${prog.pct >= 75 ? 'pos' : prog.pct >= 40 ? 'neutral' : 'neg'}">${prog.pct.toFixed(0)}%</td><td class="name-cell">${r.score.toFixed(0)}</td></tr>`;
     }).join('')}</tbody></table>`;
 
   renderCelebrateAndFocus(ref);
@@ -1361,8 +1379,9 @@ function weeklyComparisonRows(refDate) {
   const prevWkStart = addDays(wkStart, -7), prevWkEnd = addDays(wkStart, -1);
   const curDates = loggedDates(enumerateDates(wkStart, wkEnd));
   const prevDates = loggedDates(enumerateDates(prevWkStart, prevWkEnd));
-  return activeNames().map(n => {
-    const cur = rangeStats(STATE, n, curDates);
+  const curRows = computeWeightedScore(activeNames().map(n => rangeStats(STATE, n, curDates)));
+  return activeNames().map((n, i) => {
+    const cur = curRows[i];
     const prev = rangeStats(STATE, n, prevDates);
     const improvement = prev.collections > 0 ? ((cur.collections - prev.collections) / prev.collections * 100) : (cur.collections > 0 ? 100 : 0);
     const dailyVals = curDates.map(d => dailyCollections(STATE, n, d) || 0).filter(v => v !== null);
@@ -1375,14 +1394,14 @@ function weeklyComparisonRows(refDate) {
 
 function renderCelebrateAndFocus(refDate) {
   const rows = weeklyComparisonRows(refDate);
-  const topPerformer = rows.slice().sort((a, b) => b.cur.collections - a.cur.collections)[0];
+  const topPerformer = rows.slice().sort((a, b) => b.cur.score - a.cur.score)[0];
   const improvedCandidates = rows.filter(r => r.prev.collections > 0 && r.cur.collections > 0).sort((a, b) => b.improvement - a.improvement);
   const mostImproved = improvedCandidates[0];
   const consistencyCandidates = rows.filter(r => r.daysLogged >= 3 && r.cur.collections > 0).sort((a, b) => a.cv - b.cv);
   const mostConsistent = consistencyCandidates[0];
 
   const celebrateHtml = [];
-  if (topPerformer && topPerformer.cur.collections > 0) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(topPerformer.name)}</b> \u2014 Top Performer This Week<br><span class="muted small">${fmtUGX(topPerformer.cur.collections)} collected so far this week.</span></div>`);
+  if (topPerformer && topPerformer.cur.collections > 0) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(topPerformer.name)}</b> \u2014 Top Performer This Week<br><span class="muted small">Score ${topPerformer.cur.score.toFixed(0)}/100 across tasks, calls, connects and collections &middot; ${fmtUGX(topPerformer.cur.collections)} collected so far this week.</span></div>`);
   if (mostImproved && mostImproved.improvement > 10) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(mostImproved.name)}</b> \u2014 Most Improved<br><span class="muted small">Up ${mostImproved.improvement.toFixed(0)}% on collections vs last week (${fmtUGX(mostImproved.prev.collections)} \u2192 ${fmtUGX(mostImproved.cur.collections)}).</span></div>`);
   if (mostConsistent && isFinite(mostConsistent.cv)) celebrateHtml.push(`<div class="debrief-card"><b>${escapeHtml(mostConsistent.name)}</b> \u2014 Consistency Award<br><span class="muted small">Steadiest day-to-day collections this week \u2014 dependable, not just a good day here and there.</span></div>`);
   document.getElementById('dash-celebrate').innerHTML = celebrateHtml.join('') || '<div class="empty-note">Not enough logged days yet this week to call it.</div>';
@@ -1746,7 +1765,7 @@ function periodDatesForReport() {
 function generateReport() {
   const { dates, refDate, label } = periodDatesForReport();
   const names = activeNames();
-  const rows = names.map(n => rangeStats(STATE, n, dates)).sort((a, b) => b.collections - a.collections);
+  const rows = computeWeightedScore(names.map(n => rangeStats(STATE, n, dates))).sort((a, b) => b.score - a.score);
   const totalTask = rows.reduce((a, r) => a + r.totalTask, 0);
   const totalCall = rows.reduce((a, r) => a + r.totalCall, 0);
   const totalSucc = rows.reduce((a, r) => a + r.totalSucc, 0);
@@ -1762,9 +1781,9 @@ function generateReport() {
   let text = `${typeLabel} \u2014 ${label}\n\n`;
   text += `Team totals: ${fmtNum(totalTask)} task attempts, ${fmtNum(totalCall)} call attempts, ${fmtNum(totalSucc)} successful connects (${fmtPct(f.successRate)} success rate), ${fmtUGX(totalColl)} collected.\n\n`;
   text += `Pipeline: Task Attempts \u2192 Call Attempts at ${fmtPct(f.dialRate)}, Call Attempts \u2192 Successful Connects at ${fmtPct(f.successRate)}.\n\n`;
-  if (top) text += `Top performer: ${top.agent} \u2014 ${fmtUGX(top.collections)} collected.\n`;
+  if (top) text += `Top performer (weighted across tasks/calls/connects/collections): ${top.agent} \u2014 score ${top.score.toFixed(0)}/100, ${fmtUGX(top.collections)} collected.\n`;
   if (mostImproved) text += `Most improved: ${mostImproved.name} \u2014 up ${mostImproved.improvement.toFixed(0)}% vs the prior week.\n`;
-  text += `\nLeaderboard:\n` + rows.map((r, i) => `${i + 1}. ${r.agent} \u2014 ${fmtUGX(r.collections)} (${fmtPct(r.successRate)} success rate)`).join('\n') + '\n';
+  text += `\nLeaderboard (weighted score):\n` + rows.map((r, i) => `${i + 1}. ${r.agent} \u2014 score ${r.score.toFixed(0)}, ${fmtUGX(r.collections)} (${fmtPct(r.successRate)} success rate)`).join('\n') + '\n';
   if (focusRows.length) {
     text += `\nNeeds focus:\n` + focusRows.map(x => {
       const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k));
@@ -1788,8 +1807,8 @@ function generateReport() {
       </div>
       ${f.html}
     </div>
-    <div class="card"><div class="card-header">Leaderboard</div><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Collections</th><th>Success Rate</th><th>vs Target</th></tr></thead>
-      <tbody>${rows.map((r, i) => { const prog = cycleProgressFor(r.agent, refDate); return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${fmtUGX(r.collections)}</td><td>${fmtPct(r.successRate)}</td><td>${prog.pct.toFixed(0)}%</td></tr>`; }).join('')}</tbody></table></div></div>
+    <div class="card"><div class="card-header">Leaderboard <span class="right muted">weighted: coll ${STATE.settings.rankWeights.collections}% / connects ${STATE.settings.rankWeights.succ}% / calls ${STATE.settings.rankWeights.call}% / tasks ${STATE.settings.rankWeights.task}%</span></div><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Collections</th><th>Success Rate</th><th>vs Target</th></tr></thead>
+      <tbody>${rows.map((r, i) => { const prog = cycleProgressFor(r.agent, refDate); return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${r.score.toFixed(0)}</td><td>${fmtUGX(r.collections)}</td><td>${fmtPct(r.successRate)}</td><td>${prog.pct.toFixed(0)}%</td></tr>`; }).join('')}</tbody></table></div></div>
     ${focusRows.length ? `<div class="card"><div class="card-header">Needs Focus</div>${focusRows.map(x => { const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k)); const s = rangeStats(STATE, x.n, dates); return `<div class="debrief-card"><b>${escapeHtml(x.n)}</b><div class="need-line">${escapeHtml(FLAG_TEXT[key].weakness(s))} ${escapeHtml(FLAG_TEXT[key].ask)}</div></div>`; }).join('')}</div>` : ''}
     <div class="copy-line"><button class="btn btn-primary" id="report-copy-btn">Copy Full Report</button></div>
   `;
