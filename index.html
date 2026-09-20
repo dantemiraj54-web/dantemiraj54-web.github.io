@@ -15,7 +15,9 @@
 }
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;color-scheme:dark;}
+input[type=date]{color-scheme:dark;}
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.8);cursor:pointer;}
 body{display:flex;min-height:100vh;}
 a{color:inherit;text-decoration:none;}
 button{font-family:var(--font);cursor:pointer;}
@@ -946,15 +948,23 @@ document.getElementById('nav').addEventListener('click', e => {
   if (a) showSection(a.dataset.section);
 });
 
+function safeRender(fn, label) {
+  try { fn(); }
+  catch (e) {
+    console.error(`[Agents Tracker] Error rendering ${label}:`, e);
+    toast(`Something broke rendering ${label}: ${e.message}`, 'error');
+  }
+}
+
 function renderSection(id) {
-  if (id === 'debrief') renderDebrief();
-  else if (id === 'dashboard') renderDashboard();
-  else if (id === 'pipeline') renderPipeline();
-  else if (id === 'agentprofile') renderAgentProfile();
-  else if (id === 'import') renderImport();
-  else if (id === 'reports') renderReports();
-  else if (id === 'roster') renderRoster();
-  else if (id === 'settings') renderSettings();
+  if (id === 'debrief') safeRender(renderDebrief, 'Daily Debrief');
+  else if (id === 'dashboard') safeRender(renderDashboard, 'Team Dashboard');
+  else if (id === 'pipeline') safeRender(renderPipeline, 'Pipeline');
+  else if (id === 'agentprofile') safeRender(renderAgentProfile, 'Agent Profile');
+  else if (id === 'import') safeRender(renderImport, 'CSV Import');
+  else if (id === 'reports') safeRender(renderReports, 'Reports');
+  else if (id === 'roster') safeRender(renderRoster, 'Agents');
+  else if (id === 'settings') safeRender(renderSettings, 'Settings');
 }
 
 function renderAll() {
@@ -1266,9 +1276,10 @@ function teamDayNarrative(date, top, totalCall, totalSucc, split) {
   return parts.join(' ');
 }
 
-document.getElementById('debrief-refresh-btn').addEventListener('click', renderDebrief);
-document.getElementById('debrief-agent-filter').addEventListener('change', renderDebrief);
-document.getElementById('debrief-date').addEventListener('change', renderDebrief);
+document.getElementById('debrief-refresh-btn').addEventListener('click', () => safeRender(renderDebrief, 'Daily Debrief'));
+document.getElementById('debrief-agent-filter').addEventListener('change', () => safeRender(renderDebrief, 'Daily Debrief'));
+document.getElementById('debrief-date').addEventListener('change', () => safeRender(renderDebrief, 'Daily Debrief'));
+document.getElementById('debrief-date').addEventListener('input', () => safeRender(renderDebrief, 'Daily Debrief'));
 document.getElementById('debrief-copy-all-btn').addEventListener('click', () => {
   const date = document.getElementById('debrief-date').value || todayStr();
   const names = activeNames();
@@ -1753,6 +1764,10 @@ function renderReportPeriodPicker() {
       <button class="btn btn-primary" id="report-generate-btn">Generate Report</button>`;
   }
   document.getElementById('report-generate-btn').addEventListener('click', generateReport);
+  const dateInput = document.getElementById('report-date');
+  if (dateInput) dateInput.addEventListener('change', generateReport);
+  const cycleSelect = document.getElementById('report-cycle-select');
+  if (cycleSelect) cycleSelect.addEventListener('change', generateReport);
 }
 
 function periodDatesForReport() {
