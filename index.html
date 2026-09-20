@@ -760,6 +760,15 @@ function loadLocal() {
   return null;
 }
 
+function mergeLoadedState(local) {
+  const merged = defaultState();
+  if (local.roster) merged.roster = local.roster;
+  if (local.settings) merged.settings = Object.assign(defaultSettings(), local.settings);
+  if (local.cycles) merged.cycles = local.cycles;
+  if (local.daily) merged.daily = local.daily;
+  return merged;
+}
+
 async function initStorage() {
   try {
     dbNs = await window.claude.use('db');
@@ -768,7 +777,7 @@ async function initStorage() {
   if (!dbNs) {
     usingDb = false;
     const local = loadLocal();
-    if (local) STATE = Object.assign(defaultState(), local);
+    if (local) STATE = mergeLoadedState(local);
     setSyncStatus('local', 'Saved to this browser only');
     afterStateLoaded();
     return;
@@ -816,7 +825,7 @@ async function initStorage() {
   } catch (e) {
     usingDb = false;
     const local = loadLocal();
-    if (local) STATE = Object.assign(defaultState(), local);
+    if (local) STATE = mergeLoadedState(local);
     setSyncStatus('local', 'Sync unavailable — saved to this browser only');
   }
   afterStateLoaded();
@@ -858,7 +867,7 @@ function targetFor(name) {
   return STATE.settings.defaultTarget;
 }
 function computeWeightedScore(rows) {
-  const w = STATE.settings.rankWeights;
+  const w = (STATE.settings && STATE.settings.rankWeights) || defaultSettings().rankWeights;
   const maxTask = Math.max(1, ...rows.map(r => r.totalTask || 0));
   const maxCall = Math.max(1, ...rows.map(r => r.totalCall || 0));
   const maxSucc = Math.max(1, ...rows.map(r => r.totalSucc || 0));
