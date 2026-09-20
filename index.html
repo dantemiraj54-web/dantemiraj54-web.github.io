@@ -374,6 +374,17 @@ canvas{max-width:100%;}
     </div>
   </div>
   <div class="card">
+    <div class="card-header">Top Performer Ranking Weights <span class="right muted">must add up to 100</span></div>
+    <div class="grid3">
+      <div class="field"><label>Collections %</label><input type="number" id="set-w-collections" min="0" max="100"></div>
+      <div class="field"><label>Successful Connects %</label><input type="number" id="set-w-succ" min="0" max="100"></div>
+      <div class="field"><label>Call Attempts %</label><input type="number" id="set-w-call" min="0" max="100"></div>
+      <div class="field"><label>Task Attempts %</label><input type="number" id="set-w-task" min="0" max="100"></div>
+    </div>
+    <p class="small muted" style="margin-bottom:10px;">This is what decides the leaderboard order and who gets called "Top Performer" \u2014 each agent's tasks, calls, connects and collections are each scaled against the best in the team, then combined using these weights. Collections carries the most weight by default since it's the outcome that matters most; the rest reward the activity that gets you there.</p>
+    <button class="btn btn-primary" id="save-weights-btn">Save Weights</button>
+  </div>
+  <div class="card">
     <div class="card-header">Cycle History</div>
     <div class="tbl-wrap" id="cycle-history"></div>
   </div>
@@ -1075,33 +1086,36 @@ function concreteDailyAsk(s, bench, prog) {
   return `To stay on pace, aim for about ${successesNeeded} successful connect${successesNeeded === 1 ? '' : 's'} today${callsNeeded ? ` \u2014 roughly ${callsNeeded} calls to get there at your current connect rate` : ''}.`;
 }
 
+function patternPhrase(key, pattern) {
+  const count = pattern.counts[key] || 0;
+  const windowLen = pattern.windowDates.length || 1;
+  if (count >= STATE.settings.flagThreshold) return `This is a consistent pattern now \u2014 ${count} of the last ${windowLen} working days.`;
+  if (count <= 1) return `First time this has come up recently \u2014 worth watching so it doesn't become a habit.`;
+  return `This has shown up ${count} of the last ${windowLen} working days \u2014 starting to look like a pattern.`;
+}
+
 function agentDebrief(agent, date) {
   const s = dayStats(STATE, agent, date);
   const bench = teamBenchmarksForDate(STATE, activeRoster(), date);
   const pattern = agentPatternSummary(STATE, activeRoster(), agent, date);
   const prog = cycleProgressFor(agent, date);
+  const todayFlags = s.totalCall > 0 ? dayFlags(s, bench) : {};
 
-  const strengths = [], needs = [], emerging = [];
-  pattern.confirmed.forEach(k => {
+  const strengths = [], needs = [];
+  STRENGTH_KEYS.forEach(k => {
+    if (!todayFlags[k]) return;
     const def = FLAG_TEXT[k];
-    if (!def) return;
-    if (def.strength) {
-      strengths.push(`${def.strength(s)} You already have this as a strength \u2014 it's a real part of why you've collected ${fmtUGX(prog.cycleToDate)} this cycle. ${def.keepAsk}`);
-    }
-    if (def.weakness) {
-      const impact = estimateImpact(k, s, bench);
-      needs.push({
-        text: def.weakness(s),
-        ask: def.ask,
-        impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : ''
-      });
-    }
+    strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern)} You already have this as a strength \u2014 it's a real part of why you've collected ${fmtUGX(prog.cycleToDate)} this cycle. ${def.keepAsk}`);
   });
-  pattern.emerging.forEach(k => {
+  WEAKNESS_KEYS.forEach(k => {
+    if (!todayFlags[k]) return;
     const def = FLAG_TEXT[k];
-    if (!def) return;
-    const txt = def.weakness ? def.weakness(s) : (def.strength ? def.strength(s) : null);
-    if (txt) emerging.push(`Showing up ${pattern.counts[k]} of the last ${pattern.windowDates.length} working days \u2014 not yet a confirmed pattern: ${txt}`);
+    const impact = estimateImpact(k, s, bench);
+    needs.push({
+      text: `${def.weakness(s)} ${patternPhrase(k, pattern)}`,
+      ask: def.ask,
+      impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : ''
+    });
   });
   if (!strengths.length && s.logged && s.totalCall > 0) {
     strengths.push(`You showed up and put in the work \u2014 ${fmtNum(s.totalCall)} call attempts, ${fmtNum(s.totalSucc)} successful connects today.`);
@@ -1121,7 +1135,7 @@ function agentDebrief(agent, date) {
   const progressLine = collectionsProgressLine(agent, date);
   const dailyAsk = concreteDailyAsk(s, bench, prog);
 
-  return { agent, date, s, bench, pattern, prog, strengths, needs, emerging, statusWord, consistencyNote, progressLine, dailyAsk };
+  return { agent, date, s, bench, pattern, prog, strengths, needs, statusWord, consistencyNote, progressLine, dailyAsk };
 }
 
 function agentDebriefText(d) {
@@ -1142,10 +1156,6 @@ function agentDebriefText(d) {
   lines.push(`Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.`);
   lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left.`);
   if (d.dailyAsk) lines.push(d.dailyAsk);
-  if (d.emerging.length) {
-    lines.push('');
-    d.emerging.forEach(t => lines.push(`Watching: ${t}`));
-  }
   lines.push('');
   const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
   lines.push(`Today's focus: ${focus}`);
@@ -1195,8 +1205,8 @@ function renderDebrief() {
   container.innerHTML = showNames.map(n => {
     const d = agentDebrief(n, date);
     const tagsHtml = [
-      ...d.pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k)).map(() => `<span class="pill pill-green">Strength</span>`).slice(0, 1),
-      ...d.pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k)).map(() => `<span class="pill pill-red">Needs Coaching</span>`).slice(0, 1),
+      d.strengths.length ? `<span class="pill pill-green">Strength</span>` : '',
+      d.needs.length ? `<span class="pill pill-red">Needs Coaching</span>` : '',
       `<span class="pill ${d.prog.pct >= 75 ? 'pill-green' : d.prog.pct >= 40 ? 'pill-amber' : 'pill-red'}">${d.prog.pct.toFixed(0)}% of target</span>`
     ].join('');
     const bodyHtml = [
@@ -1208,8 +1218,7 @@ function renderDebrief() {
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
       d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
-      d.dailyAsk ? `<div style="margin-top:4px;">${escapeHtml(d.dailyAsk)}</div>` : null,
-      d.emerging.length ? `<div style="margin-top:8px;" class="muted small">${d.emerging.map(escapeHtml).join('<br>')}</div>` : null
+      d.dailyAsk ? `<div style="margin-top:4px;">${escapeHtml(d.dailyAsk)}</div>` : null
     ].filter(Boolean).join('');
 
     return `<div class="debrief-card">
@@ -1335,8 +1344,8 @@ function renderDashboard() {
     options: chartOpts('')
   });
 
-  // success rate by agent
-  const srRows = activeNames().map(n => {
+  // success rate by agent (respects the agent filter above)
+  const srRows = names.map(n => {
     const r = rangeStats(STATE, n, dates);
     return { name: n, rate: r.successRate };
   }).sort((a, b) => b.rate - a.rate);
@@ -1895,6 +1904,10 @@ function renderSettings() {
   document.getElementById('set-lunch-hours').value = STATE.settings.lunchHours.join(', ');
   document.getElementById('set-flag-window').value = STATE.settings.flagWindow;
   document.getElementById('set-flag-threshold').value = STATE.settings.flagThreshold;
+  document.getElementById('set-w-collections').value = STATE.settings.rankWeights.collections;
+  document.getElementById('set-w-succ').value = STATE.settings.rankWeights.succ;
+  document.getElementById('set-w-call').value = STATE.settings.rankWeights.call;
+  document.getElementById('set-w-task').value = STATE.settings.rankWeights.task;
 
   const cyc = currentCycle();
   document.getElementById('current-cycle-info').textContent = `Current cycle: ${cyc.start} \u2192 ${cyc.end || 'open'}.`;
@@ -1925,6 +1938,26 @@ document.getElementById('save-rules-btn').addEventListener('click', async () => 
   await persistSettings();
   renderAll();
   toast('Analysis rules saved', 'success');
+});
+
+document.getElementById('save-weights-btn').addEventListener('click', async () => {
+  let w = {
+    collections: Number(document.getElementById('set-w-collections').value) || 0,
+    succ: Number(document.getElementById('set-w-succ').value) || 0,
+    call: Number(document.getElementById('set-w-call').value) || 0,
+    task: Number(document.getElementById('set-w-task').value) || 0
+  };
+  const sum = w.collections + w.succ + w.call + w.task;
+  if (sum <= 0) { toast('Weights must add up to more than 0', 'error'); return; }
+  if (sum !== 100) {
+    w = { collections: w.collections / sum * 100, succ: w.succ / sum * 100, call: w.call / sum * 100, task: w.task / sum * 100 };
+    toast(`Weights normalized to add up to 100 (were ${sum})`, 'success');
+  } else {
+    toast('Ranking weights saved', 'success');
+  }
+  STATE.settings.rankWeights = w;
+  await persistSettings();
+  renderAll();
 });
 
 document.getElementById('close-cycle-btn').addEventListener('click', async () => {
