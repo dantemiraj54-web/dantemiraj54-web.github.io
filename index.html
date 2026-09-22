@@ -779,12 +779,12 @@ function agentPatternSummary(state, roster, agent, asOfDate) {
 //    will now share the same live data.
 // ---------------------------------------------------------------
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAh1bKeTEqPrJt4TAuz7_1wC9BaWgRg3k0",
-  authDomain: "agent-tracker-9b0a1.firebaseapp.com",
-  projectId: "agent-tracker-9b0a1",
-  storageBucket: "agent-tracker-9b0a1.firebasestorage.app",
-  messagingSenderId: "466008647854",
-  appId: "1:466008647854:web:eb97f49a2637b036c3a53f"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY';
 
@@ -965,6 +965,15 @@ function cycleEndOrToday(cyc) {
   return cyc.end || fmtDate(new Date());
 }
 function todayStr() { return fmtDate(new Date()); }
+function mostRecentLoggedDate() {
+  const keys = Object.keys(STATE.daily).sort();
+  return keys.length ? keys[keys.length - 1] : null;
+}
+function dayViewRefDate() {
+  const today = todayStr();
+  if (STATE.daily[today]) return today;
+  return mostRecentLoggedDate() || today;
+}
 function firstName(n) { return (n || '').trim().split(' ')[0]; }
 
 function datesForPeriod(period, refDate) {
@@ -1390,7 +1399,8 @@ function renderDashboard() {
   const sel = document.getElementById('dash-agent-filter');
   populateAgentSelect(sel, true);
   const filterVal = sel.value || '__all__';
-  const ref = todayStr();
+  const today = todayStr();
+  const ref = dashPeriod === 'day' ? dayViewRefDate() : today;
   const dates = loggedDates(datesForPeriod(dashPeriod, ref));
   const names = filterVal === '__all__' ? activeNames() : [filterVal];
 
@@ -1400,7 +1410,10 @@ function renderDashboard() {
   const totalSucc = perAgent.reduce((a, x) => a + x.totalSucc, 0);
   const totalColl = perAgent.reduce((a, x) => a + x.collections, 0);
 
-  document.getElementById('dash-metrics').innerHTML = `
+  const dayNoteHtml = (dashPeriod === 'day' && ref !== today)
+    ? `<div class="empty-note" style="grid-column:1/-1;padding:0 0 4px;">No data logged for today (${today}) yet \u2014 showing the most recent logged day: <b>${ref}</b>.</div>`
+    : '';
+  document.getElementById('dash-metrics').innerHTML = dayNoteHtml + `
     <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(totalTask)}</div></div>
     <div class="metric"><div class="mlabel">Call Attempts</div><div class="mval">${fmtNum(totalCall)}</div></div>
     <div class="metric"><div class="mlabel">Successful Connects</div><div class="mval">${fmtNum(totalSucc)}</div><div class="msub">${fmtPct(totalCall ? totalSucc / totalCall * 100 : 0)} success rate</div></div>
@@ -1557,7 +1570,7 @@ function renderPipeline() {
   const sel = document.getElementById('pipeline-agent-filter');
   populateAgentSelect(sel, true);
   const filterVal = sel.value || '__all__';
-  const ref = todayStr();
+  const ref = pipelinePeriod === 'day' ? dayViewRefDate() : todayStr();
   const dates = loggedDates(datesForPeriod(pipelinePeriod, ref));
   const names = filterVal === '__all__' ? activeNames() : [filterVal];
   const perAgent = names.map(n => rangeStats(STATE, n, dates));
