@@ -172,9 +172,28 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .chip button:hover{color:var(--red);}
 canvas{max-width:100%;}
 .agent-filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+
+/* lock screen */
+#lock-screen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;}
+#lock-screen.hidden{display:none;}
+.lock-card{width:100%;max-width:320px;background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:28px 24px;}
+.lock-logo{font-size:15px;font-weight:700;letter-spacing:0.5px;color:var(--accent);text-align:center;margin-bottom:4px;}
+.lock-sub{font-size:11px;color:var(--text3);text-align:center;margin-bottom:20px;}
+.lock-error{color:var(--red);font-size:11px;min-height:16px;margin-bottom:8px;text-align:center;}
 </style>
 </head>
 <body>
+<div id="lock-screen">
+  <div class="lock-card">
+    <div class="lock-logo">AGENTS TRACKER</div>
+    <p class="lock-sub">Enter your username and password to continue</p>
+    <div class="field"><label>Username</label><input type="text" id="lock-username" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="lock-password" autocomplete="current-password"></div>
+    <div id="lock-error" class="lock-error"></div>
+    <button class="btn btn-primary" id="lock-submit-btn" style="width:100%;">Unlock</button>
+  </div>
+</div>
+
 <div class="sidebar">
   <div class="logo"><h1>AGENTS TRACKER</h1><p>Deal Sealers &middot; Collections</p></div>
   <div class="cycle-badge">
@@ -393,6 +412,11 @@ canvas{max-width:100%;}
   <div class="card">
     <div class="card-header">Storage</div>
     <p class="small muted" id="storage-info">&mdash;</p>
+  </div>
+  <div class="card">
+    <div class="card-header">Access</div>
+    <p class="small muted" style="margin-bottom:10px;">This device stays unlocked until you lock it again \u2014 note this is a simple screen lock, not real security, since the password lives in the page's own code.</p>
+    <button class="btn btn-red" id="lock-now-btn">Lock Now</button>
   </div>
 </div>
 
@@ -1174,6 +1198,7 @@ function agentDebriefText(d) {
   lines.push('');
   lines.push(`Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.`);
   lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left.`);
+  lines.push(`Daily pace target: ${fmtUGX(d.prog.paceNeeded)}/day to hit ${fmtUGX(d.prog.target)} by the end of this cycle.`);
   if (d.dailyAsk) lines.push(d.dailyAsk);
   lines.push('');
   const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
@@ -1237,6 +1262,7 @@ function renderDebrief() {
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
       d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
+      d.s.logged ? `<div>Daily pace target: <b>${fmtUGX(d.prog.paceNeeded)}/day</b> for the ${d.prog.daysLeft} day(s) left to hit ${fmtUGX(d.prog.target)}.</div>` : null,
       d.dailyAsk ? `<div style="margin-top:4px;">${escapeHtml(d.dailyAsk)}</div>` : null
     ].filter(Boolean).join('');
 
@@ -2007,7 +2033,54 @@ function afterStateLoaded() {
   renderAll();
 }
 
-initStorage();
+// ===================== LOCK SCREEN =====================
+// NOTE: this is a simple client-side deterrent, not real security \u2014
+// the credentials live in this file's own code, so anyone who views source
+// or opens dev tools can read or bypass them. It just keeps the dashboard
+// from opening to a casual glance on a shared device or link.
+const LOCK_USER = 'Ahad10';
+const LOCK_PASS = '6547';
+const LOCK_KEY = 'agents-tracker-unlocked';
+
+function showLockScreen() {
+  document.getElementById('lock-screen').classList.remove('hidden');
+  document.getElementById('lock-username').value = '';
+  document.getElementById('lock-password').value = '';
+  document.getElementById('lock-error').textContent = '';
+  setTimeout(() => document.getElementById('lock-username').focus(), 50);
+}
+function hideLockScreen() {
+  document.getElementById('lock-screen').classList.add('hidden');
+}
+function tryUnlock() {
+  const u = document.getElementById('lock-username').value.trim();
+  const p = document.getElementById('lock-password').value;
+  if (u === LOCK_USER && p === LOCK_PASS) {
+    try { localStorage.setItem(LOCK_KEY, '1'); } catch (e) { /* ignore */ }
+    hideLockScreen();
+    initStorage();
+  } else {
+    document.getElementById('lock-error').textContent = 'Wrong username or password.';
+  }
+}
+document.getElementById('lock-submit-btn').addEventListener('click', tryUnlock);
+document.getElementById('lock-password').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+document.getElementById('lock-username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lock-password').focus(); });
+
+function lockNow() {
+  try { localStorage.removeItem(LOCK_KEY); } catch (e) { /* ignore */ }
+  location.reload();
+}
+document.getElementById('lock-now-btn').addEventListener('click', lockNow);
+
+let alreadyUnlocked = false;
+try { alreadyUnlocked = localStorage.getItem(LOCK_KEY) === '1'; } catch (e) { /* ignore */ }
+if (alreadyUnlocked) {
+  hideLockScreen();
+  initStorage();
+} else {
+  showLockScreen();
+}
 </script>
 </body>
 </html>
