@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agents Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#0d0f12; --bg2:#141720; --bg3:#1c2030; --bg4:#242840;
@@ -751,9 +753,45 @@ function agentPatternSummary(state, roster, agent, asOfDate) {
 
 
 // ===================== STORAGE LAYER =====================
+// ---------------------------------------------------------------
+// FIREBASE SETUP — required for shared sync across devices/people.
+// 1. Go to https://console.firebase.google.com -> Add project (free).
+// 2. In the project, go to Build -> Firestore Database -> Create database
+//    (start in "test mode" is fine, then see the Rules note below).
+// 3. Go to Project settings (gear icon) -> General -> "Your apps" ->
+//    click the </> (Web) icon -> register an app (no hosting needed).
+// 4. Copy the firebaseConfig object it shows you and paste it below,
+//    replacing the placeholder values.
+// 5. In Firestore -> Rules, paste this (scopes access to just this app's
+//    two collections instead of opening your whole database):
+//      rules_version = '2';
+//      service cloud.firestore {
+//        match /databases/{database}/documents {
+//          match /meta/{document=**} { allow read, write: if true; }
+//          match /daily/{document=**} { allow read, write: if true; }
+//        }
+//      }
+//    NOTE: "if true" means anyone with your config values (visible to
+//    anyone who views this page's source) can read/write this data
+//    directly, same honesty caveat as the login screen above — this is
+//    not real security, just working shared storage for a small team.
+// 6. Save this file and push it to GitHub. Everyone who opens the page
+//    will now share the same live data.
+// ---------------------------------------------------------------
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAh1bKeTEqPrJt4TAuz7_1wC9BaWgRg3k0",
+  authDomain: "agent-tracker-9b0a1.firebaseapp.com",
+  projectId: "agent-tracker-9b0a1",
+  storageBucket: "agent-tracker-9b0a1.firebasestorage.app",
+  messagingSenderId: "466008647854",
+  appId: "1:466008647854:web:eb97f49a2637b036c3a53f"
+};
+const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY';
+
 let STATE = defaultState();
 let dbNs = null;
 let usingDb = false;
+let syncBackend = null;
 let dailyUnsub = null;
 let metaUnsub = [];
 const LS_KEY = 'agents-tracker-state-v1';
@@ -794,15 +832,28 @@ function mergeLoadedState(local) {
 }
 
 async function initStorage() {
+  // Try Claude's own shared storage first — this is what powers the
+  // published claude.ai link, and only exists when running inside it.
   try {
-    dbNs = await window.claude.use('db');
+    dbNs = (window.claude && window.claude.use) ? await window.claude.use('db') : null;
   } catch (e) { dbNs = null; }
+  syncBackend = dbNs ? 'claude' : null;
+
+  // Not running inside Claude (e.g. this file hosted on GitHub Pages) —
+  // fall back to Firebase if it's been configured below.
+  if (!dbNs && FIREBASE_CONFIGURED) {
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      dbNs = firebase.firestore();
+      syncBackend = 'firebase';
+    } catch (e) { dbNs = null; }
+  }
 
   if (!dbNs) {
     usingDb = false;
     const local = loadLocal();
     if (local) STATE = mergeLoadedState(local);
-    setSyncStatus('local', 'Saved to this browser only');
+    setSyncStatus('local', FIREBASE_CONFIGURED ? 'Saved to this browser only' : 'Not set up for shared sync yet — see Settings');
     afterStateLoaded();
     return;
   }
@@ -828,7 +879,7 @@ async function initStorage() {
     STATE.daily = {};
     dailySnap.docs.forEach(d => { STATE.daily[d.id] = d.data(); });
 
-    setSyncStatus('ok', 'Synced — shared across devices');
+    setSyncStatus('ok', syncBackend === 'firebase' ? 'Synced via Firebase — shared across devices' : 'Synced — shared across devices');
 
     dailyUnsub = dbNs.collection('daily').onSnapshot(snap => {
       const fresh = {};
@@ -850,7 +901,8 @@ async function initStorage() {
     usingDb = false;
     const local = loadLocal();
     if (local) STATE = mergeLoadedState(local);
-    setSyncStatus('local', 'Sync unavailable — saved to this browser only');
+    setSyncStatus('local', 'Sync unavailable — check your Firebase config/rules (see Settings)');
+    console.error('[Agents Tracker] Firebase init failed:', e);
   }
   afterStateLoaded();
 }
@@ -1967,9 +2019,19 @@ function renderSettings() {
     ${sorted.map(c => `<tr><td class="name-cell">${c.start}</td><td>${c.end || '\u2014'}</td><td>${c.end ? '<span class="pill pill-grey">Closed</span>' : '<span class="pill pill-green">Open</span>'}</td></tr>`).join('')}
     </tbody></table>`;
 
-  document.getElementById('storage-info').textContent = usingDb
-    ? 'Synced to shared storage — this data is available from any device you open this page on, and stays in sync in real time.'
-    : 'Saved to this browser only (shared sync unavailable right now). Data will not follow you to another device or browser until sync is available.';
+  const storageEl = document.getElementById('storage-info');
+  if (usingDb) {
+    storageEl.innerHTML = syncBackend === 'firebase'
+      ? 'Synced to Firebase \u2014 this data is shared with anyone who opens this page (with your Firebase project\'s rules), and stays in sync in real time.'
+      : 'Synced to Claude\'s shared storage \u2014 this data is available from any device you open this page on through the published claude.ai link, and stays in sync in real time.';
+  } else if (!FIREBASE_CONFIGURED) {
+    storageEl.innerHTML = `<span class="pill pill-amber">Not set up yet</span><br><br>
+      Right now this only saves to your own browser \u2014 nobody else who opens this page will see your data, including anyone you share the link with.<br><br>
+      To fix that: open this HTML file in a text editor, find the <code>FIREBASE_CONFIG</code> block near the top of the &lt;script&gt; section, and follow the setup steps written right above it (create a free Firebase project, paste in its config, set the sharing rules, then re-save and re-push the file). Once that's done and you reload the page, everyone who opens it will share the same live data.`;
+  } else {
+    storageEl.innerHTML = `<span class="pill pill-red">Configured but not connecting</span><br><br>
+      A Firebase config is present but the connection failed \u2014 double-check the values in <code>FIREBASE_CONFIG</code> are copied correctly from your Firebase project, and that Firestore is enabled with the rules from the setup comment. Check the browser console for the specific error.`;
+  }
 }
 
 document.getElementById('save-cycle-settings-btn').addEventListener('click', async () => {
