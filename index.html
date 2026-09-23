@@ -1187,6 +1187,54 @@ function ownTrendPhrase(agent, refDate, metricFn, windowDates, seed) {
   return pick(['steady, like always', 'consistent as always', 'right at your usual pace'], seed);
 }
 
+// Where does this agent rank among the team on one metric, today?
+function percentileRank(agent, metricKey, refDate) {
+  const rows = activeNames().map(n => ({ n, s: dayStats(STATE, n, refDate) }));
+  const mine = rows.find(x => x.n === agent);
+  if (!mine || !mine.s.totalCall) return null;
+  const others = rows.filter(x => x.n !== agent && x.s.totalCall > 0);
+  if (!others.length) return null;
+  const myVal = mine.s[metricKey];
+  const behindMe = others.filter(x => x.s[metricKey] < myVal).length;
+  return { value: myVal, percentile: (behindMe / others.length) * 100, teamSize: others.length + 1 };
+}
+
+const PERSONAL_STRENGTH_META = {
+  successRate: v => `Connect rate today (${fmtPct(v)}) is your strongest number against the team right now.`,
+  collPerSucc: v => `Closing value today \u2014 averaging ${fmtUGX(v)} per connect \u2014 is ahead of most of the team.`,
+  totalCall: v => `Call volume today (${fmtNum(v)}) is ahead of most of the team.`
+};
+
+// Every agent's OWN best-ranking metric today, even if it's not the team's
+// #1 \u2014 this is what makes sure nobody just gets a generic fallback line.
+function personalStrength(agent, refDate) {
+  const s = dayStats(STATE, agent, refDate);
+  if (!s.totalCall) return null;
+  const keys = ['successRate', 'collPerSucc', 'totalCall'];
+  let best = null;
+  keys.forEach(k => {
+    const pr = percentileRank(agent, k, refDate);
+    if (pr && pr.value > 0 && (!best || pr.percentile > best.pr.percentile)) best = { k, pr };
+  });
+  if (!best || best.pr.percentile < 55) return null;
+  return { text: PERSONAL_STRENGTH_META[best.k](best.pr.value), percentile: best.pr.percentile };
+}
+
+// Explicit yesterday (or most recent logged day) vs today comparison, using
+// real figures \u2014 this is the "collected this yesterday, did this today"
+// narrative arc, not just today in isolation.
+function priorDayComparison(agent, refDate, windowDates) {
+  const cyc = cycleForDate(STATE, refDate);
+  const priorDates = loggedDatesInRange(STATE, cyc.start, addDays(refDate, -1)).filter(d => dayStats(STATE, agent, d).logged);
+  if (!priorDates.length) return null;
+  const priorDate = priorDates[priorDates.length - 1];
+  const priorS = dayStats(STATE, agent, priorDate);
+  const todayS = dayStats(STATE, agent, refDate);
+  const label = priorDate === addDays(refDate, -1) ? 'Yesterday' : `On ${priorDate}`;
+  const trend = windowDates ? ownTrendPhrase(agent, refDate, d => d.successRate, windowDates, agent + refDate + 'trend') : null;
+  return `${label} you collected ${fmtUGX(priorS.collections || 0)} off ${fmtNum(priorS.totalSucc)} connects. Today: ${fmtNum(todayS.totalSucc)} connects, ${fmtUGX(todayS.collections || 0)} collected${trend ? ' \u2014 ' + trend : ''}.`;
+}
+
 // Maps each coachable weakness to the metric a "role model" is judged on,
 // so feedback can point to a specific teammate to learn from.
 const PAIRING_METRIC = {
@@ -1293,8 +1341,8 @@ function agentDebrief(agent, date) {
 
   const strengths = [], needs = [];
   const cycleDatesForPairing = loggedDatesInRange(STATE, prog.cyc.start, date);
-  STRENGTH_KEYS.forEach(k => {
-    if (!todayFlags[k]) return;
+  const confirmedStrengthKeys = STRENGTH_KEYS.filter(k => todayFlags[k]);
+  confirmedStrengthKeys.forEach(k => {
     const def = FLAG_TEXT[k];
     const seed = agent + date + k;
     strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern)} ${def.keepAsk(s, seed)}`);
@@ -1311,8 +1359,16 @@ function agentDebrief(agent, date) {
       peer: peerSuggestion(k, agent, s, cycleDatesForPairing)
     });
   });
-  if (!strengths.length && s.logged && s.totalCall > 0) {
-    strengths.push(`You showed up and put in the work \u2014 ${fmtNum(s.totalCall)} call attempts, ${fmtNum(s.totalSucc)} successful connects today.`);
+  // Nobody falls back to a generic line \u2014 if no confirmed multi-day
+  // pattern exists, find what THIS agent is genuinely best at today,
+  // relative to the team, so every person gets their own real highlight.
+  if (!confirmedStrengthKeys.length) {
+    const personal = personalStrength(agent, date);
+    if (personal) {
+      strengths.push(personal.text);
+    } else if (s.logged && s.totalCall > 0) {
+      strengths.push(`Steady effort today \u2014 ${fmtNum(s.totalCall)} calls, ${fmtNum(s.totalSucc)} connects. Nothing standout yet, nothing alarming either.`);
+    }
   }
 
   const consistency = peakHourConsistency(agent, pattern.windowDates);
@@ -1327,12 +1383,7 @@ function agentDebrief(agent, date) {
 
   const statusWord = prog.pct >= 100 ? 'ahead of target' : prog.pct >= 75 ? 'on pace' : prog.pct >= 40 ? 'behind pace' : 'well behind pace';
   const progressLine = collectionsProgressLine(agent, date);
-
-  let retroLine = null;
-  if (s.logged && s.totalCall > 0) {
-    const trend = ownTrendPhrase(agent, date, d => d.successRate, pattern.windowDates, agent + date + 'trend');
-    retroLine = `Worked ${fmtNum(s.totalCall)} calls, ${fmtNum(s.totalSucc)} turned into real connects${trend ? ' \u2014 ' + trend : ''}.`;
-  }
+  const retroLine = priorDayComparison(agent, date, pattern.windowDates);
 
   return { agent, date, s, bench, pattern, prog, strengths, needs, statusWord, consistencyNote, progressLine, retroLine };
 }
