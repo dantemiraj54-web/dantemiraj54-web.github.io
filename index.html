@@ -457,6 +457,24 @@ const ROSTER_SEED = [
   "Emily Namara"
 ];
 
+const DEFAULT_TEAM_MAP = {
+  "Elizabeth Akampurira": "Deal Sealers",
+  "Gloria Nahirya": "Deal Sealers",
+  "Patience Nyamwiza": "Deal Sealers",
+  "Anitah Nalugwa": "Deal Sealers",
+  "Elizabeth Kemigisa": "Deal Sealers",
+  "Emily Namara": "Deal Sealers",
+  "Racheal Nabyonga Kisakye": "Deal Sealers",
+  "Babirye Violla": "Deal Sealers",
+  "Mercy Atusasiire": "Gumite",
+  "Oliver Natoolo": "Gumite",
+  "Natasha Nakiyaga": "Gumite",
+  "Angella Athieno": "Gumite",
+  "Birungi Nuwagaba": "Gumite",
+  "Flavia Nangonzi": "Gumite",
+  "David Wasen": "Gumite"
+};
+
 function normName(s) {
   return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -477,7 +495,7 @@ function defaultSettings() {
 function defaultState() {
   const today = new Date();
   return {
-    roster: ROSTER_SEED.map(name => ({ name, target: null, active: true })),
+    roster: ROSTER_SEED.map(name => ({ name, target: null, active: true, team: DEFAULT_TEAM_MAP[name] || "Unassigned" })),
     settings: defaultSettings(),
     cycles: [seedCycleFor(fmtDate(today), defaultSettings().cycleStartDay)],
     daily: {}
@@ -712,8 +730,15 @@ function median(nums) {
   return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
 }
 
-function teamBenchmarksForDate(state, roster, date) {
-  const agents = roster.filter(a => a.active).map(a => a.name);
+function teamBenchmarksForDate(state, roster, date, forAgent) {
+  let pool = roster.filter(a => a.active);
+  if (forAgent) {
+    const meEntry = roster.find(a => a.name === forAgent);
+    const team = meEntry && meEntry.team;
+    const sameTeam = pool.filter(a => a.name !== forAgent && a.team === team);
+    if (sameTeam.length) pool = sameTeam.concat(meEntry ? [meEntry] : []);
+  }
+  const agents = pool.map(a => a.name);
   const stats = agents.map(a => dayStats(state, a, date)).filter(s => s.totalCall > 0);
   return {
     medianSuccessRate: median(stats.map(s => s.successRate)),
@@ -752,7 +777,7 @@ function agentPatternSummary(state, roster, agent, asOfDate) {
     const s = dayStats(state, agent, date);
     if (!s.totalCall) return;
     daysCounted++;
-    const bench = teamBenchmarksForDate(state, roster, date);
+    const bench = teamBenchmarksForDate(state, roster, date, agent);
     const f = dayFlags(s, bench);
     keys.forEach(k => { if (f[k]) counts[k]++; });
   });
@@ -832,9 +857,13 @@ function loadLocal() {
   return null;
 }
 
+function migrateRosterTeams(roster) {
+  return roster.map(a => a.team ? a : Object.assign({}, a, { team: DEFAULT_TEAM_MAP[a.name] || "Unassigned" }));
+}
+
 function mergeLoadedState(local) {
   const merged = defaultState();
-  if (local.roster) merged.roster = local.roster;
+  if (local.roster) merged.roster = migrateRosterTeams(local.roster);
   if (local.settings) merged.settings = Object.assign(defaultSettings(), local.settings);
   if (local.cycles) merged.cycles = local.cycles;
   if (local.daily) merged.daily = local.daily;
@@ -877,11 +906,12 @@ async function initStorage() {
       dbNs.doc('meta/settings').get(),
       dbNs.doc('meta/cycles').get()
     ]);
-    if (rosterSnap.exists && rosterSnap.data().agents) STATE.roster = rosterSnap.data().agents;
+    if (rosterSnap.exists && rosterSnap.data().agents) STATE.roster = migrateRosterTeams(rosterSnap.data().agents);
     if (settingsSnap.exists) STATE.settings = Object.assign(defaultSettings(), settingsSnap.data());
     if (cyclesSnap.exists && cyclesSnap.data().cycles) STATE.cycles = cyclesSnap.data().cycles;
 
     if (!rosterSnap.exists) await dbNs.doc('meta/roster').set({ agents: STATE.roster });
+    else if (rosterSnap.data().agents.some(a => !a.team)) await dbNs.doc('meta/roster').set({ agents: STATE.roster });
     if (!settingsSnap.exists) await dbNs.doc('meta/settings').set(STATE.settings);
     if (!cyclesSnap.exists) await dbNs.doc('meta/cycles').set({ cycles: STATE.cycles });
 
@@ -899,7 +929,7 @@ async function initStorage() {
     }, err => { setSyncStatus('local', 'Sync lost — working offline'); });
 
     metaUnsub.push(dbNs.doc('meta/roster').onSnapshot(snap => {
-      if (snap.exists && snap.data().agents) { STATE.roster = snap.data().agents; renderAll(); }
+      if (snap.exists && snap.data().agents) { STATE.roster = migrateRosterTeams(snap.data().agents); renderAll(); }
     }));
     metaUnsub.push(dbNs.doc('meta/settings').onSnapshot(snap => {
       if (snap.exists) { STATE.settings = Object.assign(defaultSettings(), snap.data()); renderAll(); }
@@ -947,6 +977,18 @@ function fmtNum(n) { return Math.round(n || 0).toLocaleString('en-US'); }
 function fmtPct(n) { return (isFinite(n) ? n : 0).toFixed(1) + '%'; }
 function activeRoster() { return STATE.roster.filter(a => a.active); }
 function activeNames() { return activeRoster().map(a => a.name); }
+function teamOf(agentName) {
+  const a = STATE.roster.find(x => x.name === agentName);
+  return (a && a.team) || 'Unassigned';
+}
+// Active teammates sharing the same team, excluding the agent themself.
+// Falls back to the whole active roster if the agent has no teammates
+// (e.g. team unset, or a team of one) so comparisons never come back empty.
+function teammatesOf(agentName) {
+  const team = teamOf(agentName);
+  const sameTeam = activeRoster().filter(a => a.name !== agentName && a.team === team).map(a => a.name);
+  return sameTeam.length ? sameTeam : activeNames().filter(n => n !== agentName);
+}
 function targetFor(name) {
   const a = STATE.roster.find(x => x.name === name);
   if (a && a.target !== null && a.target !== undefined && a.target !== '') return Number(a.target);
@@ -1189,13 +1231,12 @@ function ownTrendPhrase(agent, refDate, metricFn, windowDates, seed) {
 
 // Where does this agent rank among the team on one metric, today?
 function percentileRank(agent, metricKey, refDate) {
-  const rows = activeNames().map(n => ({ n, s: dayStats(STATE, n, refDate) }));
-  const mine = rows.find(x => x.n === agent);
-  if (!mine || !mine.s.totalCall) return null;
-  const others = rows.filter(x => x.n !== agent && x.s.totalCall > 0);
+  const mine = dayStats(STATE, agent, refDate);
+  if (!mine.totalCall) return null;
+  const others = teammatesOf(agent).map(n => dayStats(STATE, n, refDate)).filter(s => s.totalCall > 0);
   if (!others.length) return null;
-  const myVal = mine.s[metricKey];
-  const behindMe = others.filter(x => x.s[metricKey] < myVal).length;
+  const myVal = mine[metricKey];
+  const behindMe = others.filter(s => s[metricKey] < myVal).length;
   return { value: myVal, percentile: (behindMe / others.length) * 100, teamSize: others.length + 1 };
 }
 
@@ -1248,8 +1289,7 @@ const PAIRING_METRIC = {
 // with too little activity in range to be a meaningful example.
 function bestAgentFor(metricFn, excludeName, dates) {
   let best = null, bestVal = -Infinity;
-  activeNames().forEach(n => {
-    if (n === excludeName) return;
+  teammatesOf(excludeName).forEach(n => {
     const r = rangeStats(STATE, n, dates);
     if (r.totalCall < 5) return;
     const v = metricFn(r);
@@ -1334,7 +1374,7 @@ function patternPhrase(key, pattern) {
 
 function agentDebrief(agent, date) {
   const s = dayStats(STATE, agent, date);
-  const bench = teamBenchmarksForDate(STATE, activeRoster(), date);
+  const bench = teamBenchmarksForDate(STATE, activeRoster(), date, agent);
   const pattern = agentPatternSummary(STATE, activeRoster(), agent, date);
   const prog = cycleProgressFor(agent, date);
   const todayFlags = s.totalCall > 0 ? dayFlags(s, bench) : {};
@@ -1798,7 +1838,7 @@ function renderAgentProfile() {
 
   const f = funnelHtml(r.totalTask, r.totalCall, r.totalSucc, r.collections);
 
-  const bench = teamBenchmarksForDate(STATE, activeRoster(), ref);
+  const bench = teamBenchmarksForDate(STATE, activeRoster(), ref, agent);
   const strengthsHtml = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k))
     .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))} ${escapeHtml(FLAG_TEXT[k].keepAsk(r, agent + ref + k))}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
   const weaknessHtml = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k))
