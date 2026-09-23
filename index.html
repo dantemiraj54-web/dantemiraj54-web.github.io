@@ -208,6 +208,7 @@ canvas{max-width:100%;}
     <a data-section="dashboard"><span class="icon">&#128202;</span> Team Dashboard</a>
     <a data-section="pipeline"><span class="icon">&#128257;</span> Pipeline</a>
     <a data-section="agentprofile"><span class="icon">&#128100;</span> Agent Profile</a>
+    <a data-section="coaching"><span class="icon">&#127919;</span> Coaching</a>
     <a data-section="import"><span class="icon">&#8593;</span> CSV Import</a>
     <a data-section="reports"><span class="icon">&#128203;</span> Reports</a>
     <a data-section="roster"><span class="icon">&#9776;</span> Agents</a>
@@ -300,6 +301,15 @@ canvas{max-width:100%;}
     </div>
   </div>
   <div id="agent-profile-content"></div>
+</div>
+
+<!-- ============ COACHING ============ -->
+<div class="section" id="section-coaching">
+  <div class="page-header">
+    <div><h2>Coaching</h2><p id="coaching-subtitle">Who to count on, who needs coaching, and on what \u2014 updates as new data comes in</p></div>
+  </div>
+  <div class="card"><div class="card-header">&#127942; Who To Count On \u2014 Team Leaders Right Now</div><div id="coaching-leaders"></div></div>
+  <div id="coaching-agents"></div>
 </div>
 
 <!-- ============ CSV IMPORT ============ -->
@@ -454,7 +464,7 @@ function normName(s) {
 function defaultSettings() {
   return {
     cycleStartDay: 11,
-    defaultTarget: 112000000,
+    defaultTarget: 6000000,
     lunchHours: [13, 14],
     workHours: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     partialHour: 8,
@@ -779,12 +789,12 @@ function agentPatternSummary(state, roster, agent, asOfDate) {
 //    will now share the same live data.
 // ---------------------------------------------------------------
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAh1bKeTEqPrJt4TAuz7_1wC9BaWgRg3k0",
-  authDomain: "agent-tracker-9b0a1.firebaseapp.com",
-  projectId: "agent-tracker-9b0a1",
-  storageBucket: "agent-tracker-9b0a1.firebasestorage.app",
-  messagingSenderId: "466008647854",
-  appId: "1:466008647854:web:eb97f49a2637b036c3a53f"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY';
 
@@ -1055,6 +1065,7 @@ function renderSection(id) {
   else if (id === 'dashboard') safeRender(renderDashboard, 'Team Dashboard');
   else if (id === 'pipeline') safeRender(renderPipeline, 'Pipeline');
   else if (id === 'agentprofile') safeRender(renderAgentProfile, 'Agent Profile');
+  else if (id === 'coaching') safeRender(renderCoaching, 'Coaching');
   else if (id === 'import') safeRender(renderImport, 'CSV Import');
   else if (id === 'reports') safeRender(renderReports, 'Reports');
   else if (id === 'roster') safeRender(renderRoster, 'Agents');
@@ -1097,36 +1108,121 @@ function estimateImpact(key, s, bench) {
   return Math.round(extra);
 }
 
+// Deterministic pick from a list of phrasing variants, seeded so the same
+// agent+day+category always gets the same variant (stable within a render)
+// but different agents/days naturally land on different wording.
+function pick(arr, seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return arr[h % arr.length];
+}
+
 const FLAG_TEXT = {
   overdialing: {
-    weakness: s => `You are over-dialing \u2014 ${fmtNum(s.totalCall)} call attempts \u2014 but connects aren't following: success rate is only ${fmtPct(s.successRate)}, well under the team's pace. This is speed over precision, and it's why the collections aren't matching the effort.`,
-    ask: `Slow down and work the list with intent \u2014 pick fewer, better accounts and give each one a real shot instead of racing through the list.`
+    weakness: s => `${fmtNum(s.totalCall)} calls but only ${fmtNum(s.totalSucc)} turned into real connects \u2014 a lot of dialing for not much landing.`,
+    ask: (s, seed) => pick([
+      `If only more of that volume turned into real conversations, you'd already be closing this out.`,
+      `If only you slowed down just enough to let the calls land, this moves faster with less effort.`,
+      `If only that energy went into fewer, better-picked accounts, the connects would follow.`
+    ], seed)
   },
   skimmingTasks: {
-    weakness: s => `You are skimming through tasks \u2014 ${fmtNum(s.totalTask)} accounts opened but only ${fmtPct(s.dialRate)} of them actually get dialed. Accounts are being touched and dropped, not called \u2014 that's a direct hole in your collections.`,
-    ask: `Match task attempts to call attempts \u2014 open an account, call it before you move to the next one.`
+    weakness: s => `${fmtNum(s.totalTask)} accounts opened but only ${fmtPct(s.dialRate)} of them actually got a call \u2014 a lot getting touched and dropped.`,
+    ask: (s, seed) => pick([
+      `If only every account opened got an actual call before moving to the next, this number drops fast.`,
+      `If only the follow-through matched the pickup, you'd see this close out quicker.`
+    ], seed)
   },
   talkingNotClosing: {
-    weakness: s => `You are talking but not closing \u2014 your connect rate (${fmtPct(s.successRate)}) is fine, but the value per successful connect (${fmtUGX(s.collPerSucc)}) is below the team's median. You're reaching people, the conversations just aren't firm enough to turn into payment.`,
-    ask: `Tighten the ask on every connect \u2014 get a specific amount and a specific date, every time, not a soft promise.`
+    weakness: s => `Getting people on the phone fine, but the value per connect (${fmtUGX(s.collPerSucc)}) says the conversations aren't landing firm.`,
+    ask: (s, seed) => pick([
+      `If only those conversations ended with a firm amount and date, you'd already be seeing it in collections.`,
+      `If only you closed as firmly as you connect, this would be moving a lot faster.`
+    ], seed)
   },
   lowVolume: {
-    weakness: s => `You are weak on volume \u2014 ${fmtNum(s.totalCall)} call attempts, below the team's typical pace. Fewer dials means fewer chances at a connect, and that's showing up directly in your collections.`,
-    ask: `Push attempt volume up \u2014 more dials, more shots at a connect.`
+    weakness: s => `${fmtNum(s.totalCall)} calls today \u2014 a bit light next to the rest of the team.`,
+    ask: (s, seed) => pick([
+      `If only you pushed the volume up a bit, your closing is already good enough to carry it.`,
+      `If only you got a few more accounts worked, more shots means more connects.`
+    ], seed)
   },
   strongConnectRate: {
-    strength: s => `You are strong on connect rate \u2014 ${fmtPct(s.successRate)}, well above the team's pace.`,
-    keepAsk: `Keep working the same list discipline that's getting you through \u2014 don't dilute it by rushing.`
+    strength: s => `Connect rate is strong today \u2014 ${fmtPct(s.successRate)}, well above the team.`,
+    keepAsk: (s, seed) => pick([
+      `If everyone connected at this rate, the team target wouldn't stand a chance.`,
+      `This is exactly the pace worth protecting \u2014 don't let it slip.`
+    ], seed)
   },
   strongCloser: {
-    strength: s => `You are strong on closing \u2014 every successful connect is converting well, averaging ${fmtUGX(s.collPerSucc)} per connect, above the team median.`,
-    keepAsk: `Keep asking firmly for a specific amount and date on every connect \u2014 that's exactly what's driving this.`
+    strength: s => `Closing well today \u2014 averaging ${fmtUGX(s.collPerSucc)} per connect, above the team median.`,
+    keepAsk: (s, seed) => pick([
+      `This is the kind of closing that gets a target done early \u2014 keep asking firmly.`,
+      `Whatever's being said on these calls, it's working \u2014 keep doing exactly that.`
+    ], seed)
   },
   highVolume: {
-    strength: s => `You are strong on volume \u2014 ${fmtNum(s.totalCall)} calls, above the team's typical pace.`,
-    keepAsk: `Keep the dial count up \u2014 it's giving you more shots than most of the team gets.`
+    strength: s => `Strong volume today \u2014 ${fmtNum(s.totalCall)} calls, above the team's typical pace.`,
+    keepAsk: (s, seed) => pick([
+      `This volume alone puts you ahead of most of the team \u2014 keep the pace up.`,
+      `Keep the dial count here \u2014 it's giving you more shots than most of the team gets.`
+    ], seed)
   }
 };
+
+// Compares today's number on a metric to the agent's own trailing average
+// (not the team's) so feedback can say "off your usual self" vs "steady as
+// always" \u2014 a personal baseline, not a generic one.
+function ownTrendPhrase(agent, refDate, metricFn, windowDates, seed) {
+  const past = windowDates.filter(d => d !== refDate);
+  if (past.length < 2) return null;
+  const vals = past.map(d => metricFn(dayStats(STATE, agent, d))).filter(v => isFinite(v) && v >= 0);
+  if (!vals.length) return null;
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (avg <= 0) return null;
+  const today = metricFn(dayStats(STATE, agent, refDate));
+  const ratio = today / avg;
+  if (ratio < 0.8) return pick(['a bit off your usual self today', 'not quite your usual sharp pace', 'a quieter day than normal for you'], seed);
+  if (ratio > 1.2) return pick(['sharper than usual today', 'one of your better days', 'above your own normal pace'], seed);
+  return pick(['steady, like always', 'consistent as always', 'right at your usual pace'], seed);
+}
+
+// Maps each coachable weakness to the metric a "role model" is judged on,
+// so feedback can point to a specific teammate to learn from.
+const PAIRING_METRIC = {
+  overdialing: { label: 'connect rate', fn: r => r.successRate, fmt: v => fmtPct(v) },
+  skimmingTasks: { label: 'turning tasks into actual calls', fn: r => r.dialRate, fmt: v => fmtPct(v) },
+  talkingNotClosing: { label: 'closing value per connect', fn: r => r.collPerSucc, fmt: v => fmtUGX(v) },
+  lowVolume: { label: 'call volume', fn: r => r.totalCall, fmt: v => fmtNum(v) }
+};
+
+// Best teammate on a given metric, excluding the agent themself and anyone
+// with too little activity in range to be a meaningful example.
+function bestAgentFor(metricFn, excludeName, dates) {
+  let best = null, bestVal = -Infinity;
+  activeNames().forEach(n => {
+    if (n === excludeName) return;
+    const r = rangeStats(STATE, n, dates);
+    if (r.totalCall < 5) return;
+    const v = metricFn(r);
+    if (isFinite(v) && v > bestVal) { bestVal = v; best = n; }
+  });
+  return best ? { name: best, value: bestVal } : null;
+}
+
+function peerSuggestion(weaknessKey, agent, ownStat, dates) {
+  const m = PAIRING_METRIC[weaknessKey];
+  if (!m) return null;
+  const partner = bestAgentFor(m.fn, agent, dates);
+  if (!partner) return null;
+  const ownVal = m.fn(ownStat);
+  if (partner.value <= ownVal * 1.1) return null;
+  return pick([
+    `Worth watching how ${partner.name} handles ${m.label} right now \u2014 clearly ahead there. Worth a conversation.`,
+    `Look at ${partner.name}'s numbers on ${m.label} \u2014 this is the one to copy.`,
+    `Talk to ${partner.name} about ${m.label} \u2014 whatever they're doing there is working.`
+  ], agent + weaknessKey + partner.name);
+}
 
 function hourNoteText(s) {
   const sw = strongWeakHours(s.succ, STATE.settings);
@@ -1180,16 +1276,6 @@ function collectionsProgressLine(agent, date) {
   return `You were at ${fmtUGX(prev)}, you're now at ${fmtUGX(cur)} \u2014 that's ${fmtUGX(delta)} collected${sameDayBefore ? ' today' : ' since ' + prevDate}.`;
 }
 
-function concreteDailyAsk(s, bench, prog) {
-  if (prog.paceNeeded <= 0) return null;
-  const collPerSucc = bench.medianCollPerSucc || s.collPerSucc || 0;
-  const successRate = (s.successRate || bench.medianSuccessRate || 20) / 100;
-  if (!collPerSucc) return null;
-  const successesNeeded = Math.max(1, Math.ceil(prog.paceNeeded / collPerSucc));
-  const callsNeeded = successRate > 0 ? Math.ceil(successesNeeded / successRate) : null;
-  return `To stay on pace, aim for about ${successesNeeded} successful connect${successesNeeded === 1 ? '' : 's'} today${callsNeeded ? ` \u2014 roughly ${callsNeeded} calls to get there at your current connect rate` : ''}.`;
-}
-
 function patternPhrase(key, pattern) {
   const count = pattern.counts[key] || 0;
   const windowLen = pattern.windowDates.length || 1;
@@ -1206,19 +1292,23 @@ function agentDebrief(agent, date) {
   const todayFlags = s.totalCall > 0 ? dayFlags(s, bench) : {};
 
   const strengths = [], needs = [];
+  const cycleDatesForPairing = loggedDatesInRange(STATE, prog.cyc.start, date);
   STRENGTH_KEYS.forEach(k => {
     if (!todayFlags[k]) return;
     const def = FLAG_TEXT[k];
-    strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern)} You already have this as a strength \u2014 it's a real part of why you've collected ${fmtUGX(prog.cycleToDate)} this cycle. ${def.keepAsk}`);
+    const seed = agent + date + k;
+    strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern)} ${def.keepAsk(s, seed)}`);
   });
   WEAKNESS_KEYS.forEach(k => {
     if (!todayFlags[k]) return;
     const def = FLAG_TEXT[k];
+    const seed = agent + date + k;
     const impact = estimateImpact(k, s, bench);
     needs.push({
       text: `${def.weakness(s)} ${patternPhrase(k, pattern)}`,
-      ask: def.ask,
-      impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : ''
+      ask: def.ask(s, seed),
+      impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : '',
+      peer: peerSuggestion(k, agent, s, cycleDatesForPairing)
     });
   });
   if (!strengths.length && s.logged && s.totalCall > 0) {
@@ -1237,9 +1327,14 @@ function agentDebrief(agent, date) {
 
   const statusWord = prog.pct >= 100 ? 'ahead of target' : prog.pct >= 75 ? 'on pace' : prog.pct >= 40 ? 'behind pace' : 'well behind pace';
   const progressLine = collectionsProgressLine(agent, date);
-  const dailyAsk = concreteDailyAsk(s, bench, prog);
 
-  return { agent, date, s, bench, pattern, prog, strengths, needs, statusWord, consistencyNote, progressLine, dailyAsk };
+  let retroLine = null;
+  if (s.logged && s.totalCall > 0) {
+    const trend = ownTrendPhrase(agent, date, d => d.successRate, pattern.windowDates, agent + date + 'trend');
+    retroLine = `Worked ${fmtNum(s.totalCall)} calls, ${fmtNum(s.totalSucc)} turned into real connects${trend ? ' \u2014 ' + trend : ''}.`;
+  }
+
+  return { agent, date, s, bench, pattern, prog, strengths, needs, statusWord, consistencyNote, progressLine, retroLine };
 }
 
 function agentDebriefText(d) {
@@ -1251,16 +1346,16 @@ function agentDebriefText(d) {
     return lines.join('\n');
   }
   if (d.progressLine) { lines.push(d.progressLine); lines.push(''); }
+  if (d.retroLine) { lines.push(d.retroLine); lines.push(''); }
   if (d.strengths.length) d.strengths.forEach(t => lines.push(`You're doing this: ${t}`));
-  if (d.needs.length) d.needs.forEach(n => lines.push(`I need this: ${n.text} ${n.ask} ${n.impact}`.trim()));
+  if (d.needs.length) d.needs.forEach(n => lines.push(`I need this: ${n.text} ${n.ask} ${n.impact}${n.peer ? ' ' + n.peer : ''}`.trim()));
   if (d.consistencyNote) { lines.push(''); lines.push(d.consistencyNote); }
   lines.push('');
   lines.push(hourNoteText(d.s).replace(/<\/?b>/g, ''));
   lines.push('');
-  lines.push(`Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.`);
+  lines.push(`Today: ${fmtUGX(d.s.collections || 0)} collected.`);
   lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left.`);
   lines.push(`Daily pace target: ${fmtUGX(d.prog.paceNeeded)}/day to hit ${fmtUGX(d.prog.target)} by the end of this cycle.`);
-  if (d.dailyAsk) lines.push(d.dailyAsk);
   lines.push('');
   const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
   lines.push(`Today's focus: ${focus}`);
@@ -1290,8 +1385,12 @@ function renderDebrief() {
   const top = scoredList.slice().sort((a, b) => b.score - a.score)[0];
 
   const split = dailyPerformanceSplit(date, loggedList);
+  const teamFraming = teamFramingLine(date, names);
 
   document.getElementById('debrief-team-summary').innerHTML = `
+    <div class="card" style="background:var(--bg3);">
+      <div class="debrief-body">${teamFraming}</div>
+    </div>
     <div class="metrics">
       <div class="metric"><div class="mlabel">Agents Logged</div><div class="mval">${loggedList.length}/${names.length}</div></div>
       <div class="metric"><div class="mlabel">Task Attempts</div><div class="mval">${fmtNum(totalTask)}</div></div>
@@ -1317,14 +1416,14 @@ function renderDebrief() {
     const bodyHtml = [
       !d.s.logged ? `<span class="muted">No activity logged for ${escapeHtml(n)} on ${date} yet.</span>` : null,
       d.progressLine ? `<div style="margin-bottom:6px;">${escapeHtml(d.progressLine)}</div>` : null,
+      d.retroLine ? `<div style="margin-bottom:6px;">${escapeHtml(d.retroLine)}</div>` : null,
       ...d.strengths.map(t => `<div class="you-line">You're doing this: ${escapeHtml(t)}</div>`),
-      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)} ${escapeHtml(x.impact)}</div>`),
+      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)} ${escapeHtml(x.impact)}${x.peer ? '<br><span class="pill pill-blue" style="margin-top:4px;">' + escapeHtml(x.peer) + '</span>' : ''}</div>`),
       d.consistencyNote ? `<div style="margin-top:8px;">${escapeHtml(d.consistencyNote)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
-      d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtNum(d.s.totalTask)} task attempts, ${fmtNum(d.s.totalCall)} call attempts, ${fmtNum(d.s.totalSucc)} successful connects, ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
+      d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
       d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
-      d.s.logged ? `<div>Daily pace target: <b>${fmtUGX(d.prog.paceNeeded)}/day</b> for the ${d.prog.daysLeft} day(s) left to hit ${fmtUGX(d.prog.target)}.</div>` : null,
-      d.dailyAsk ? `<div style="margin-top:4px;">${escapeHtml(d.dailyAsk)}</div>` : null
+      d.s.logged ? `<div>Daily pace target: <b>${fmtUGX(d.prog.paceNeeded)}/day</b> for the ${d.prog.daysLeft} day(s) left to hit ${fmtUGX(d.prog.target)}.</div>` : null
     ].filter(Boolean).join('');
 
     return `<div class="debrief-card">
@@ -1355,9 +1454,24 @@ function dailyPerformanceSplit(date, loggedList) {
   return { strong, weak, noActivity };
 }
 
+function teamFramingLine(date, names) {
+  const cyc = cycleForDate(STATE, date);
+  let totalRemaining = 0, totalTarget = 0, counted = 0;
+  names.forEach(n => {
+    const prog = cycleProgressFor(n, date);
+    totalRemaining += Math.max(0, prog.remaining);
+    totalTarget += prog.target;
+    counted++;
+  });
+  const totalCycleDays = enumerateDates(cyc.start, cycleEndDateFor(cyc.start, STATE.settings.cycleStartDay)).length;
+  const daysElapsed = enumerateDates(cyc.start, date).length;
+  const daysLeft = Math.max(0, totalCycleDays - daysElapsed);
+  return `${counted} of you are pulling toward one shared number this cycle \u2014 <b>${fmtUGX(totalRemaining)}</b> to go as a team${daysLeft ? `, ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}, split by what each of you brings in.`;
+}
+
 function teamDayNarrative(date, top, totalCall, totalSucc, split) {
   const parts = [];
-  if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading the day with ${fmtUGX(top.collections || 0)} collected.`);
+  if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading the day with ${fmtUGX(top.collections || 0)} collected \u2014 if everyone worked like this today, the team number wouldn't stand a chance. This is the one to copy.`);
   const rate = totalCall ? (totalSucc / totalCall * 100) : 0;
   parts.push(`Team connect rate for the day is ${fmtPct(rate)}.`);
   if (split.strong.length) {
@@ -1635,9 +1749,9 @@ function renderAgentProfile() {
 
   const bench = teamBenchmarksForDate(STATE, activeRoster(), ref);
   const strengthsHtml = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k))
-    .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))} You already have this as a strength. ${escapeHtml(FLAG_TEXT[k].keepAsk)}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
+    .map(k => `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(r))} ${escapeHtml(FLAG_TEXT[k].keepAsk(r, agent + ref + k))}</div>`).join('') || '<div class="muted small">No confirmed strength pattern yet this period.</div>';
   const weaknessHtml = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k))
-    .map(k => { const impact = estimateImpact(k, r, bench); return `<div class="need-line">${escapeHtml(FLAG_TEXT[k].weakness(r))} ${escapeHtml(FLAG_TEXT[k].ask)}${impact > 0 ? ' Fix this and you\'re looking at roughly ' + fmtUGX(impact) + ' more toward target.' : ''}</div>`; }).join('') || '<div class="muted small">No confirmed coaching flag right now.</div>';
+    .map(k => { const impact = estimateImpact(k, r, bench); return `<div class="need-line">${escapeHtml(FLAG_TEXT[k].weakness(r))} ${escapeHtml(FLAG_TEXT[k].ask(r, agent + ref + k))}${impact > 0 ? ' Fix this and you\'re looking at roughly ' + fmtUGX(impact) + ' more toward target.' : ''}</div>`; }).join('') || '<div class="muted small">No confirmed coaching flag right now.</div>';
   const emergingHtml = pattern.emerging.map(k => {
     const def = FLAG_TEXT[k]; const txt = def.weakness ? def.weakness(r) : def.strength(r);
     return `<div class="muted small">Showing up ${pattern.counts[k]}/${pattern.windowDates.length} days: ${escapeHtml(txt)}</div>`;
@@ -1691,6 +1805,87 @@ function renderAgentProfile() {
   document.getElementById('agent-profile-copy-btn').addEventListener('click', () => {
     copyText(agentDebriefText(agentDebrief(agent, ref)), agent + "'s feedback");
   });
+}
+
+// ===================== RENDER: COACHING =====================
+const LEADER_METRICS = [
+  { key: 'successRate', label: 'Best Connect Rate', fmt: v => fmtPct(v), min: 5 },
+  { key: 'collPerSucc', label: 'Best Closer (value per connect)', fmt: v => fmtUGX(v), min: 5 },
+  { key: 'totalCall', label: 'Most Call Volume', fmt: v => fmtNum(v), min: 0 },
+  { key: 'totalTask', label: 'Most Ground Covered (tasks)', fmt: v => fmtNum(v), min: 0 },
+  { key: 'collections', label: 'Top Collections This Cycle', fmt: v => fmtUGX(v), min: 0 }
+];
+
+function renderCoaching() {
+  const refDate = dayViewRefDate();
+  const cyc = cycleForDate(STATE, refDate);
+  const cycleDates = loggedDates(enumerateDates(cyc.start, refDate));
+  document.getElementById('coaching-subtitle').textContent = `Who to count on, who needs coaching, and on what \u2014 based on ${cyc.start} \u2192 ${refDate}, updates as new data comes in`;
+
+  const names = activeNames();
+  const cycleRows = names.map(n => Object.assign({ agent: n }, rangeStats(STATE, n, cycleDates)));
+
+  // ---- Team leaders board ----
+  const leaderHtml = LEADER_METRICS.map(m => {
+    const qualifying = cycleRows.filter(r => r.totalCall >= m.min || m.key === 'totalTask' || m.key === 'collections');
+    if (!qualifying.length) return '';
+    const top = qualifying.slice().sort((a, b) => b[m.key] - a[m.key])[0];
+    if (!top || top[m.key] <= 0) return '';
+    return `<div class="debrief-card"><b>${escapeHtml(top.agent)}</b> \u2014 ${m.label}<br><span class="muted small">${m.fmt(top[m.key])}</span></div>`;
+  }).filter(Boolean).join('');
+  document.getElementById('coaching-leaders').innerHTML = leaderHtml || '<div class="empty-note">Not enough logged data this cycle yet to name leaders.</div>';
+
+  // ---- Per-agent coaching cards (each driven by that agent's own confirmed pattern) ----
+  const bench = teamBenchmarksForDate(STATE, activeRoster(), refDate);
+  const container = document.getElementById('coaching-agents');
+  container.innerHTML = names.map(agent => {
+    const dayS = dayStats(STATE, agent, refDate);
+    const pattern = agentPatternSummary(STATE, activeRoster(), agent, refDate);
+    const cycleDatesForPairing = cycleDates;
+
+    const confirmedWeak = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k));
+    const confirmedStrong = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k));
+
+    // headline weakness = the confirmed one with the biggest estimated UGX impact if fixed
+    let headlineWeak = null;
+    if (confirmedWeak.length) {
+      headlineWeak = confirmedWeak.map(k => ({ k, impact: estimateImpact(k, dayS, bench) }))
+        .sort((a, b) => b.impact - a.impact)[0].k;
+    }
+    let coachHtml;
+    if (headlineWeak) {
+      const def = FLAG_TEXT[headlineWeak];
+      const impact = estimateImpact(headlineWeak, dayS, bench);
+      const peer = peerSuggestion(headlineWeak, agent, dayS, cycleDatesForPairing);
+      coachHtml = `<div class="need-line">${escapeHtml(def.weakness(dayS))} ${escapeHtml(def.ask(dayS, agent + refDate + headlineWeak))}${impact > 0 ? ' Fix this and you\'re looking at roughly ' + fmtUGX(impact) + ' more toward target.' : ''}</div>${peer ? `<div class="pill pill-blue" style="margin-top:6px;display:inline-block;">${escapeHtml(peer)}</div>` : ''}`;
+    } else {
+      const emergingWeak = pattern.emerging.filter(k => WEAKNESS_KEYS.includes(k))[0];
+      if (emergingWeak) {
+        coachHtml = `<div class="muted small"><span class="pill pill-amber">Early signal</span> ${escapeHtml(FLAG_TEXT[emergingWeak].weakness(dayS))} Shown up ${pattern.counts[emergingWeak]} of the last ${pattern.windowDates.length} working days \u2014 worth a word now before it sets in.</div>`;
+      } else {
+        coachHtml = `<div class="muted small">No confirmed coaching flag right now \u2014 nothing specific to correct.</div>`;
+      }
+    }
+
+    // headline strength = confirmed one, else fall back to whichever metric they lead the team on
+    let strongHtml;
+    if (confirmedStrong.length) {
+      const k = confirmedStrong[0];
+      strongHtml = `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(dayS))} ${escapeHtml(FLAG_TEXT[k].keepAsk(dayS, agent + refDate + k))}</div>`;
+    } else {
+      const own = cycleRows.find(r => r.agent === agent);
+      const ranked = own ? LEADER_METRICS.map(m => ({ m, val: own[m.key], rank: cycleRows.filter(r => r[m.key] > own[m.key]).length })).sort((a, b) => a.rank - b.rank)[0] : null;
+      strongHtml = (ranked && ranked.rank === 0 && ranked.val > 0)
+        ? `<div class="you-line">Currently leads the team on ${ranked.m.label.toLowerCase().replace('best ', '').replace('top ', '').replace('most ', '')} \u2014 ${ranked.m.fmt(ranked.val)}. Count on ${escapeHtml(agent)} for this.</div>`
+        : `<div class="muted small">No standout strength flagged yet this cycle \u2014 reinforce consistency and watch for what starts to click.</div>`;
+    }
+
+    return `<div class="card">
+      <div class="card-header">${escapeHtml(agent)}</div>
+      ${strongHtml}
+      <div style="margin-top:8px;">${coachHtml}</div>
+    </div>`;
+  }).join('');
 }
 
 // ===================== RENDER: CSV IMPORT =====================
@@ -1912,7 +2107,7 @@ function generateReport() {
     text += `\nNeeds focus:\n` + focusRows.map(x => {
       const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k));
       const s = rangeStats(STATE, x.n, dates);
-      return `- ${x.n}: ${FLAG_TEXT[key].weakness(s)} ${FLAG_TEXT[key].ask}`;
+      return `- ${x.n}: ${FLAG_TEXT[key].weakness(s)} ${FLAG_TEXT[key].ask(s, x.n + refDate + key)}`;
     }).join('\n') + '\n';
   }
   text += `\nPer-agent detail:\n`;
@@ -1933,7 +2128,7 @@ function generateReport() {
     </div>
     <div class="card"><div class="card-header">Leaderboard <span class="right muted">weighted: coll ${STATE.settings.rankWeights.collections}% / connects ${STATE.settings.rankWeights.succ}% / calls ${STATE.settings.rankWeights.call}% / tasks ${STATE.settings.rankWeights.task}%</span></div><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Collections</th><th>Success Rate</th><th>vs Target</th></tr></thead>
       <tbody>${rows.map((r, i) => { const prog = cycleProgressFor(r.agent, refDate); return `<tr><td class="rank">${i + 1}</td><td class="name-cell">${escapeHtml(r.agent)}</td><td>${r.score.toFixed(0)}</td><td>${fmtUGX(r.collections)}</td><td>${fmtPct(r.successRate)}</td><td>${prog.pct.toFixed(0)}%</td></tr>`; }).join('')}</tbody></table></div></div>
-    ${focusRows.length ? `<div class="card"><div class="card-header">Needs Focus</div>${focusRows.map(x => { const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k)); const s = rangeStats(STATE, x.n, dates); return `<div class="debrief-card"><b>${escapeHtml(x.n)}</b><div class="need-line">${escapeHtml(FLAG_TEXT[key].weakness(s))} ${escapeHtml(FLAG_TEXT[key].ask)}</div></div>`; }).join('')}</div>` : ''}
+    ${focusRows.length ? `<div class="card"><div class="card-header">Needs Focus</div>${focusRows.map(x => { const key = x.p.confirmed.find(k => WEAKNESS_KEYS.includes(k)); const s = rangeStats(STATE, x.n, dates); return `<div class="debrief-card"><b>${escapeHtml(x.n)}</b><div class="need-line">${escapeHtml(FLAG_TEXT[key].weakness(s))} ${escapeHtml(FLAG_TEXT[key].ask(s, x.n + refDate + key))}</div></div>`; }).join('')}</div>` : ''}
     <div class="copy-line"><button class="btn btn-primary" id="report-copy-btn">Copy Full Report</button></div>
   `;
   document.getElementById('report-output').innerHTML = html;
