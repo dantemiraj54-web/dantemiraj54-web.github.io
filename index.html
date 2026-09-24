@@ -230,7 +230,10 @@ canvas{max-width:100%;}
     </div>
   </div>
   <div id="debrief-team-summary"></div>
+  <div id="debrief-went-down"></div>
+  <div id="debrief-team-compare"></div>
   <div class="agent-filter-bar">
+    <select id="debrief-team-filter" style="max-width:200px;"></select>
     <select id="debrief-agent-filter" style="max-width:240px;"></select>
     <span class="muted small">Showing individual debriefs below</span>
   </div>
@@ -1487,12 +1490,27 @@ function agentDebriefTextLong(d) {
   return lines.join('\n');
 }
 
-// ===================== QUICK FEEDBACK (short, copy-ready format) =====================
-// One block per agent: Name / Activity / Collections / Focus / Target.
-// Compares the chosen day with that agent's previous logged day. Wording is
-// picked deterministically from several variants per situation, offset by the
-// agent's position on the roster, so two people in the same spot don't get
-// the same sentence but a re-render never changes the text.
+// ===================== FEEDBACK ENGINE (short format, diagnosis-driven) =====================
+// Per agent: Name / Activity / Collections / Focus / (Pattern) / Target.
+// Every agent is read against the team's numbers for that day (accounts opened,
+// calls per account, connects, money per connect) and against their own
+// previous day and cycle. Wording depends on what the numbers say about that
+// person, so two agents only sound alike when they really are in the same spot.
+// No record for an agent on a day that other agents have data = they didn't work.
+
+const FB = {
+  overRepMult: 1.25,   // calls per account vs team median to call it redialing
+  overRepMin: 1.4,     // ...and at least this many calls per account
+  redialCap: 2,        // attempts per account before moving on (used in advice)
+  notFirmVpc: 0.6,     // money per connect vs team median: many connects, little money
+  lowValueVpc: 0.85,   // money per connect vs team median: settling for small amounts
+  lowValueOwn: 0.8,    // ...and vs the agent's own cycle average
+  lowVolume: 0.65,     // calls vs team median
+  lowPickup: 0.7,      // connect rate vs team median
+  skimRep: 0.75,       // calls per account below this = accounts opened but not called
+  noWorkPatternDays: 2 // days with no activity, inside the window, before it's a pattern
+};
+
 const DISPLAY_NAME_OVERRIDES = {
   'Elizabeth Akampurira': 'Elizabeth A',
   'Elizabeth Kemigisa': 'Kemigisa',
@@ -1514,12 +1532,14 @@ function ordinalDay(dateStr) {
   return d + suf;
 }
 
-// 10,600,000 -> "10.6M"; anything under a million stays a full number.
+// 10,600,000 -> "10.6M"; under a million stays a full number.
 function fmtMoney(n) {
   n = Math.round(n || 0);
   if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1) + 'M';
   return n.toLocaleString('en-US');
 }
+function f1(n) { return (isFinite(n) ? n : 0).toFixed(1); }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 function hashStr(s) {
   let h = 0;
@@ -1527,8 +1547,8 @@ function hashStr(s) {
   return h;
 }
 
-// Same agent + day + situation always gets the same variant. Teammates in
-// the same situation are spread across the variants (least-used first).
+// Same agent + day + situation always gets the same variant. Teammates in the
+// same situation are spread across the variants (least-used first).
 const PHRASE_BOOK = {};
 function pickFor(arr, agent, date, key) {
   const slot = date + '|' + key;
@@ -1546,26 +1566,33 @@ function pickFor(arr, agent, date, key) {
   }
   return arr[book[agent] % arr.length];
 }
+function resetPhraseBook(date) {
+  Object.keys(PHRASE_BOOK).forEach(k => { if (k.indexOf(date + '|') === 0) delete PHRASE_BOOK[k]; });
+}
 
 function relChange(a, b) { return a ? (b - a) / a : (b > 0 ? 1 : 0); }
-
-// 1 = up, -1 = down, 0 = about the same. A move only counts if it clears
-// both a minimum absolute change and a minimum relative change, so a
-// 59 -> 57 wobble isn't reported as a drop.
+// 1 = up, -1 = down, 0 = about the same. A move only counts if it clears both a
+// minimum absolute change and a minimum relative change (59 -> 57 is steady).
 function trendDir(a, b, minAbs, minRel) {
   const d = b - a;
   if (Math.abs(d) < minAbs || Math.abs(relChange(a, b)) < minRel) return 0;
   return d > 0 ? 1 : -1;
 }
 
-function priorLoggedDate(agent, date) {
-  const back = loggedDatesInRange(STATE, addDays(date, -7), addDays(date, -1))
-    .filter(d => dayStats(STATE, agent, d).logged);
-  return back.length ? back[back.length - 1] : null;
+// ---------- dates ----------
+// The last few dates that have any record, up to and including `date`.
+function windowDates(date) {
+  const n = (STATE.settings && STATE.settings.flagWindow) || 5;
+  return Object.keys(STATE.daily).filter(d => d <= date && d >= addDays(date, -14)).sort().slice(-n);
+}
+// The previous date that has a record (any agent), within a week.
+function priorRecordDate(date) {
+  const ds = Object.keys(STATE.daily).filter(d => d < date && d >= addDays(date, -7)).sort();
+  return ds.length ? ds[ds.length - 1] : null;
 }
 
-// The daily number the agent needed on `date`, given what they'd collected
-// in the cycle up to the day before (remaining target / days left incl. that day).
+// The daily number the agent needed on `date`, given what they'd collected in
+// the cycle up to the day before (remaining target / days left incl. that day).
 function dailyTargetOn(agent, date) {
   const cyc = cycleForDate(STATE, date);
   const total = enumerateDates(cyc.start, cycleEndDateFor(cyc.start, STATE.settings.cycleStartDay)).length;
@@ -1586,12 +1613,12 @@ function teamTopCollection(date) {
 
 // Accounts and connects both up: who improved most on the two combined?
 function teamBestCombo(date) {
+  const pd = priorRecordDate(date);
+  if (!pd) return null;
   let best = null;
   activeNames().forEach(n => {
-    const pd = priorLoggedDate(n, date);
-    if (!pd) return;
     const a = dayStats(STATE, n, pd), b = dayStats(STATE, n, date);
-    if (!b.logged) return;
+    if (!(a.totalTask > 0) || !(b.totalTask > 0)) return;
     const tr = relChange(a.totalTask, b.totalTask), cr = relChange(a.totalSucc, b.totalSucc);
     if (tr <= 0 || cr <= 0) return;
     if (!best || tr + cr > best.v) best = { n, v: tr + cr };
@@ -1599,36 +1626,207 @@ function teamBestCombo(date) {
   return best;
 }
 
+// ---------- reading a day ----------
+// Team medians for one date, from working teammates (falls back to the whole roster).
+function benchFor(agent, date) {
+  const grab = names => names.filter(n => n !== agent).map(n => dayStats(STATE, n, date)).filter(s => s.totalTask > 0 || s.totalCall > 0);
+  let peers = grab(teammatesOf(agent));
+  if (peers.length < 3) peers = grab(activeNames());
+  const withColl = peers.filter(s => s.collections != null && !isBaselineDay(s.agent, date));
+  const vpcs = withColl.filter(s => s.totalSucc > 0).map(s => s.collections / s.totalSucc);
+  return {
+    n: peers.length,
+    medTask: median(peers.map(s => s.totalTask)),
+    medCall: median(peers.map(s => s.totalCall)),
+    medSucc: median(peers.map(s => s.totalSucc)),
+    medRep: median(peers.filter(s => s.totalTask > 0).map(s => s.totalCall / s.totalTask)),
+    medRate: median(peers.filter(s => s.totalCall > 0).map(s => s.totalSucc / s.totalCall)),
+    medVpc: median(vpcs)
+  };
+}
+
+// Money per connect over the agent's earlier days this cycle (needs a few days of history).
+function ownAverageVpc(agent, date) {
+  const cyc = cycleForDate(STATE, date);
+  const ds = loggedDatesInRange(STATE, cyc.start, addDays(date, -1));
+  let R = 0, C = 0, days = 0;
+  ds.forEach(d => {
+    if (isBaselineDay(agent, d)) return;
+    const s = dayStats(STATE, agent, d);
+    if (s.collections == null || !s.totalSucc) return;
+    R += s.collections; C += s.totalSucc; days++;
+  });
+  return (days >= 2 && C >= 15) ? R / C : null;
+}
+
+function dayRead(agent, date) {
+  const s = dayStats(STATE, agent, date);
+  const worked = s.totalTask > 0 || s.totalCall > 0;
+  const r = { agent, date, s, worked, T: s.totalTask, K: s.totalCall, C: s.totalSucc, flags: {} };
+  if (!worked) return r;
+  const b = benchFor(agent, date);
+  r.b = b;
+  r.rep = r.T ? r.K / r.T : 0;
+  r.rate = r.K ? r.C / r.K : 0;
+  const base = isBaselineDay(agent, date);
+  r.R = (s.collections != null && !base) ? s.collections : null;
+  r.vpc = (r.R != null && r.C > 0) ? r.R / r.C : null;
+  r.ownVpc = ownAverageVpc(agent, date);
+  if (b.n < 2) return r;
+  const f = r.flags;
+  // many calls per account -> fewer accounts opened -> fewer connects
+  f.overDialing = b.medRep > 0 && r.rep >= Math.max(FB.overRepMin, b.medRep * FB.overRepMult) && r.T <= b.medTask * 0.95 && r.C <= b.medSucc;
+  // accounts opened but not called
+  f.skimming = b.medTask > 0 && r.T > b.medTask * 1.1 && r.rep < FB.skimRep;
+  f.lowVolume = !f.overDialing && b.medCall > 0 && r.K < b.medCall * FB.lowVolume;
+  f.lowPickup = !f.overDialing && b.medCall > 0 && r.K >= b.medCall * 0.8 && b.medRate > 0 && r.rate <= b.medRate * FB.lowPickup;
+  // plenty of connects, very little money out of them
+  f.notFirm = r.vpc != null && b.medVpc > 0 && r.C >= Math.max(8, b.medSucc) && r.vpc <= b.medVpc * FB.notFirmVpc;
+  // money per connect below the team AND below their own usual = settling for less
+  f.lowValue = !f.notFirm && r.vpc != null && b.medVpc > 0 && r.C >= 5 && r.vpc <= b.medVpc * FB.lowValueVpc &&
+    (r.ownVpc != null ? r.vpc <= r.ownVpc * FB.lowValueOwn : r.vpc <= b.medVpc * 0.7);
+  f.strongCoverage = !f.overDialing && b.medTask > 0 && r.T >= b.medTask * 1.15 && r.rep <= b.medRep * 1.1 && r.C >= b.medSucc;
+  f.strongCloser = r.vpc != null && b.medVpc > 0 && r.vpc >= b.medVpc * 1.3 && r.C >= 5;
+  f.strongConnect = b.medRate > 0 && r.rate >= b.medRate * 1.15 && r.K >= b.medCall * 0.6;
+  return r;
+}
+
+// Totals over a set of dates, counting only days the agent actually worked.
+function windowTotals(agent, dates) {
+  const w = { days: 0, T: 0, K: 0, C: 0, R: 0, Cr: 0 };
+  dates.forEach(d => {
+    const s = dayStats(STATE, agent, d);
+    const worked = s.totalTask > 0 || s.totalCall > 0;
+    if (worked) { w.days++; w.T += s.totalTask; w.K += s.totalCall; w.C += s.totalSucc; }
+    if (worked && s.collections != null && !isBaselineDay(agent, d)) { w.R += s.collections; w.Cr += s.totalSucc; }
+  });
+  w.rep = w.T ? w.K / w.T : 0;
+  w.rate = w.K ? w.C / w.K : 0;
+  w.vpc = w.Cr ? w.R / w.Cr : 0;
+  w.avgT = w.days ? w.T / w.days : 0;
+  w.avgK = w.days ? w.K / w.days : 0;
+  w.avgC = w.days ? w.C / w.days : 0;
+  return w;
+}
+
+// ---------- patterns ----------
+const PATTERN_KEYS = ['noWork', 'overDialing', 'notFirm', 'lowValue', 'skimming', 'lowVolume', 'lowPickup', 'strongCoverage', 'strongCloser', 'strongConnect'];
+
+function patternFor(agent, date) {
+  const dates = windowDates(date);
+  const threshold = (STATE.settings && STATE.settings.flagThreshold) || 3;
+  const days = dates.map(d => {
+    const r = dayRead(agent, d);
+    const f = Object.assign({}, r.flags);
+    f.noWork = !r.worked;
+    return { r, f };
+  });
+  const counts = {}, streaks = {}, detail = {};
+  PATTERN_KEYS.forEach(k => {
+    counts[k] = 0; let sum = 0, n = 0;
+    days.forEach(x => {
+      if (!x.f[k]) return;
+      counts[k]++;
+      const v = ({ overDialing: x.r.rep, skimming: x.r.rep, notFirm: x.r.vpc, lowValue: x.r.vpc, lowVolume: x.r.K,
+        lowPickup: x.r.rate, strongCoverage: x.r.T, strongCloser: x.r.vpc, strongConnect: x.r.rate })[k];
+      if (v != null && isFinite(v)) { sum += v; n++; }
+    });
+    detail[k] = n ? sum / n : null;
+    let st = 0;
+    for (let i = days.length - 1; i >= 0; i--) { if (days[i].f[k]) st++; else break; }
+    streaks[k] = st;
+  });
+  const confirmed = PATTERN_KEYS.filter(k => k === 'noWork'
+    ? counts[k] >= FB.noWorkPatternDays
+    : (counts[k] >= threshold || streaks[k] >= 3));
+  return { n: days.length, counts, streaks, detail, confirmed };
+}
+
+// ---------- who to copy ----------
+const PEER_RULES = {
+  overDialing: (own) => ({
+    ok: w => w.rep > 0 && w.rep <= own.rep * 0.85 && w.avgC >= own.avgC,
+    score: w => w.avgC,
+    desc: w => `${Math.round(w.avgT)} accounts a day at ${f1(w.rep)} calls each, ${Math.round(w.avgC)} connects a day`
+  }),
+  skimming: () => ({
+    ok: w => w.rep >= 1,
+    score: w => w.avgC,
+    desc: w => `${Math.round(w.avgT)} accounts a day, ${f1(w.rep)} calls on each, ${Math.round(w.avgC)} connects a day`
+  }),
+  notFirm: (own) => ({
+    ok: w => w.Cr >= 10 && w.vpc >= own.vpc * 1.2,
+    score: w => w.vpc,
+    desc: w => `${fmtMoney(w.vpc)} per connect over the last ${w.days} days`
+  }),
+  lowVolume: (own) => ({
+    ok: w => w.avgK >= own.avgK * 1.2,
+    score: w => w.avgK,
+    desc: w => `${Math.round(w.avgK)} calls a day`
+  }),
+  lowPickup: (own) => ({
+    ok: w => w.K >= 40 && w.rate >= own.rate * 1.2,
+    score: w => w.rate,
+    desc: w => `${fmtPct(w.rate * 100)} of calls turn into connects`
+  })
+};
+PEER_RULES.lowValue = PEER_RULES.notFirm;
+
+function peerFor(agent, date, kind) {
+  const rule = PEER_RULES[kind];
+  if (!rule) return null;
+  const dates = windowDates(date);
+  const own = windowTotals(agent, dates);
+  const R = rule(own);
+  const rows = names => names.filter(n => n !== agent).map(n => ({ n, w: windowTotals(n, dates) })).filter(x => x.w.days >= 1 && R.ok(x.w));
+  const best = list => list.reduce((b, x) => (!b || R.score(x.w) > R.score(b.w)) ? x : b, null);
+  const found = best(rows(teammatesOf(agent))) || best(rows(activeNames()));
+  return found ? { name: shortName(found.n), desc: R.desc(found.w) } : null;
+}
+
+function peerLine(c, kind) {
+  const p = peerFor(c.agent, c.date, kind);
+  if (!p) return '';
+  return pickFor([
+    `Watch how ${p.name} does it: ${p.desc}.`,
+    `${p.name} is the one to copy right now, ${p.desc}.`,
+    `Sit with ${p.name} for ten minutes, ${p.desc}.`
+  ], c.agent, c.date, 'peer' + kind);
+}
+
+// ---------- context ----------
 function quickContext(agent, date) {
   const name = shortName(agent);
-  const s1 = dayStats(STATE, agent, date);
-  if (!s1.logged) return { agent, date, name, logged: false };
-  const priorDate = priorLoggedDate(agent, date);
-  const s0 = priorDate ? dayStats(STATE, agent, priorDate) : null;
+  if (!STATE.daily[date]) return { agent, date, name, hasData: false };
+  const priorDate = priorRecordDate(date);
+  const rd = dayRead(agent, date);
+  const rd0 = priorDate ? dayRead(agent, priorDate) : null;
   const c = {
-    agent, date, name, logged: true, s1, s0, priorDate,
+    agent, date, name, hasData: true, priorDate, rd, rd0, s1: rd.s, s0: rd0 ? rd0.s : null,
     prog: cycleProgressFor(agent, date),
     rl: ordinalDay(date), pl: priorDate ? ordinalDay(priorDate) : '',
-    T1: s1.totalTask, C1: s1.totalSucc, K1: s1.totalCall,
-    R: s1.collections, rT: dailyTargetOn(agent, date),
-    refBaseline: isBaselineDay(agent, date)
+    T1: rd.T, C1: rd.C, K1: rd.K, R: rd.s.collections, rT: dailyTargetOn(agent, date),
+    refBaseline: isBaselineDay(agent, date), priorWorked: !!(rd0 && rd0.worked)
   };
-  if (s0) {
-    c.T0 = s0.totalTask; c.C0 = s0.totalSucc; c.K0 = s0.totalCall;
-    c.P = s0.collections; c.pT = dailyTargetOn(agent, priorDate);
+  if (rd0) {
+    c.T0 = rd0.T; c.C0 = rd0.C; c.K0 = rd0.K;
+    c.P = rd0.s.collections; c.pT = dailyTargetOn(agent, priorDate);
     c.priorBaseline = isBaselineDay(agent, priorDate);
-    c.tDir = trendDir(c.T0, c.T1, 4, 0.06);
-    c.cDir = trendDir(c.C0, c.C1, 3, 0.10);
-    const rate0 = c.T0 ? c.C0 / c.T0 : 0, rate1 = c.T1 ? c.C1 / c.T1 : 0;
-    c.rDir = trendDir(rate0 * 100, rate1 * 100, 0, 0.15);
-    const rep0 = c.T0 ? c.K0 / c.T0 : 0, rep1 = c.T1 ? c.K1 / c.T1 : 0;
-    c.fewerRepeats = rep0 > 1 && rep1 < rep0 * 0.93;
-    c.tRel = relChange(c.T0, c.T1);
-    const combo = teamBestCombo(date);
-    c.bestCombo = !!(combo && combo.n === agent);
+    if (rd.worked && rd0.worked) {
+      c.tDir = trendDir(c.T0, c.T1, 4, 0.06);
+      c.cDir = trendDir(c.C0, c.C1, 3, 0.10);
+      const rate0 = c.T0 ? c.C0 / c.T0 : 0, rate1 = c.T1 ? c.C1 / c.T1 : 0;
+      c.rDir = trendDir(rate0 * 100, rate1 * 100, 0, 0.15);
+      const rep0 = c.T0 ? c.K0 / c.T0 : 0, rep1 = c.T1 ? c.K1 / c.T1 : 0;
+      c.fewerRepeats = rep0 > 1 && rep1 < rep0 * 0.93;
+      c.tRel = relChange(c.T0, c.T1);
+      const combo = teamBestCombo(date);
+      c.bestCombo = !!(combo && combo.n === agent);
+    }
   }
-  const sw = strongWeakHours(s1.succ, STATE.settings);
+  const sw = strongWeakHours(rd.s.succ, STATE.settings);
   c.bestHour = sw.strongest && sw.strongest.v >= 2 ? hourLabel(sw.strongest.h) : null;
+  c.pattern = patternFor(agent, date);
   return c;
 }
 
@@ -1640,17 +1838,87 @@ function whenLabel(c) {
 }
 
 // ---------- ACTIVITY ----------
-function activityLine(c) {
-  const { T0, T1, C0, C1 } = c;
-  if (!c.s0) {
-    return { kind: 'first', text: `${fmtNum(T1)} accounts worked and ${fmtNum(C1)} connects. First logged day in the last week, so nothing to compare against yet.` };
+// " (was 151)" only when the day-before number is meaningfully different.
+function wasBit(c, key) {
+  if (!(c.s0 && c.priorWorked && c[key] != null)) return '';
+  const now = { T0: c.T1, C0: c.C1, K0: c.K1 }[key];
+  const prev = c[key];
+  return Math.abs(prev - now) >= Math.max(3, prev * 0.05) ? ` (was ${fmtNum(prev)})` : '';
+}
+
+const DIAG_TEXT = {
+  overDialing: c => {
+    const { T, K, C, rep, b } = c.rd;
+    return [
+      `${fmtNum(K)} calls on just ${fmtNum(T)} accounts${wasBit(c, 'T0')}. That's ${f1(rep)} calls per account when the team sits around ${f1(b.medRep)}. You keep going back to the same accounts instead of opening new ones, which is why connects are only ${fmtNum(C)} against ${fmtNum(b.medSucc)} for the team.`,
+      `You opened ${fmtNum(T)} accounts${wasBit(c, 'T0')} against the team's ${fmtNum(b.medTask)}. Calls per account was ${f1(rep)} vs ${f1(b.medRep)}. The redials are eating your time, so fewer accounts get worked and you end up with ${fmtNum(C)} connects${wasBit(c, 'C0')}.`,
+      `Too much redialing: ${f1(rep)} calls per account, ${fmtNum(K)} calls for ${fmtNum(T)} accounts. Every extra redial is a fresh account you didn't open, so the connects stay at ${fmtNum(C)}.`
+    ];
+  },
+  skimming: c => {
+    const { T, K, C, rep, b } = c.rd;
+    return [
+      `You opened ${fmtNum(T)} accounts but only made ${fmtNum(K)} calls, so a lot of them got looked at and dropped. Calls per account ${f1(rep)}, the team is at ${f1(b.medRep)}.`,
+      `${fmtNum(T)} accounts opened, ${fmtNum(K)} calls. Accounts are being picked and left untouched, and an untouched account can't connect (${fmtNum(C)} connects).`
+    ];
+  },
+  lowVolume: c => {
+    const { K, T, C, b } = c.rd;
+    return [
+      `${fmtNum(K)} calls${wasBit(c, 'K0')} against ${fmtNum(b.medCall)} for the team. ${fmtNum(C)} connects is what that volume gives you.`,
+      `Volume is the gap: ${fmtNum(K)} calls and ${fmtNum(T)} accounts, while the team is around ${fmtNum(b.medCall)} calls and ${fmtNum(b.medTask)} accounts.`
+    ];
+  },
+  lowPickup: c => {
+    const { T, K, C, rate, b } = c.rd;
+    const hr = c.bestHour ? ` Your connects came mostly around ${c.bestHour}.` : '';
+    return [
+      `Your volume is fine (${fmtNum(T)} accounts, ${fmtNum(K)} calls) but only ${fmtPct(rate * 100)} of calls turned into a connect. The team gets ${fmtPct(b.medRate * 100)}.${hr}`,
+      `${fmtNum(C)} connects off ${fmtNum(K)} calls, ${fmtPct(rate * 100)} against ${fmtPct(b.medRate * 100)} for the team. The effort is there, so the problem is when you call or which accounts you pick.${hr}`
+    ];
+  },
+  strongCoverage: c => {
+    const { T, C, rep, b } = c.rd;
+    return [
+      `${fmtNum(T)} accounts${wasBit(c, 'T0')}, well above the team's ${fmtNum(b.medTask)}, with only ${f1(rep)} calls per account. Clean coverage, and it gave you ${fmtNum(C)} connects.`,
+      `You're opening more accounts than most (${fmtNum(T)} vs ${fmtNum(b.medTask)}) without redialing (${f1(rep)} calls per account). That's where your ${fmtNum(C)} connects came from.`
+    ];
+  },
+  strongConnect: c => {
+    const { rate, C, b } = c.rd;
+    return [
+      `${fmtPct(rate * 100)} of your calls turned into connects, the team gets ${fmtPct(b.medRate * 100)}. Your accounts pick up when you call (${fmtNum(C)} connects).`
+    ];
   }
-  const key = 'act';
+};
+
+function noWorkActivity(c) {
+  const had = c.s0 && c.priorWorked;
+  const pool = had ? [
+    () => `Nothing logged for you on the ${c.rl}: no accounts worked, no calls. The day before you did ${fmtNum(c.T0)} accounts and ${fmtNum(c.C0)} connects.`,
+    () => `No dialing from you on the ${c.rl}. The ${c.pl} was ${fmtNum(c.T0)} accounts and ${fmtNum(c.C0)} connects, this was nothing.`,
+    () => `You're missing from the numbers on the ${c.rl}. No accounts, no calls, no connects.`
+  ] : [
+    () => `Nothing logged for you on the ${c.rl}: no accounts worked, no calls.`,
+    () => `No dialing from you on the ${c.rl}.`
+  ];
+  return { kind: 'noWork', text: pickFor(pool, c.agent, c.date, 'act-noWork' + (had ? 'H' : 'N'))() };
+}
+
+// What changed since the previous day, in plain numbers.
+function movementActivity(c) {
+  if (!c.s0) {
+    return { kind: 'first', text: `${fmtNum(c.T1)} accounts worked and ${fmtNum(c.C1)} connects. No earlier day on record to compare against yet.` };
+  }
+  if (!c.priorWorked) {
+    return { kind: 'back', text: `Back on the phones after nothing logged on the ${c.pl}: ${fmtNum(c.T1)} accounts and ${fmtNum(c.C1)} connects.` };
+  }
+  const { T0, T1, C0, C1 } = c;
   const more = c.tRel >= 0.2 ? 'a lot more' : 'more';
-  let kind, pool;
+  let kind, pool, sub = '';
 
   if (c.tDir === 1 && (c.cDir === -1 || (c.cDir === 0 && c.rDir === -1))) {
-    kind = 'noLanding';
+    kind = 'noLanding'; sub = c.cDir === -1 ? 'D' : 'F';
     pool = c.cDir === -1 ? [
       () => `You worked ${more} accounts (${T0} to ${T1}) but got fewer connects (${C0} to ${C1}), even though you called more.`,
       () => `${T1} accounts worked, up from ${T0}. Connects went the other way, ${C0} down to ${C1}. More dials, fewer conversations.`,
@@ -1705,7 +1973,7 @@ function activityLine(c) {
         () => `Steady. Accounts ${T0} then ${T1}, connects ${C0} then ${C1}. Nothing moved much either way.`
       ];
     }
-  } else { // tasks down
+  } else {
     if (c.cDir === -1) {
       kind = 'downBoth';
       pool = [
@@ -1727,11 +1995,62 @@ function activityLine(c) {
       ];
     }
   }
-  return { kind, text: pickFor(pool, c.agent, c.date, key + kind + (c.cDir === -1 ? 'D' : 'F') + (c.fewerRepeats ? 'r' : ''))() };
+  return { kind, text: pickFor(pool, c.agent, c.date, 'act-' + kind + sub + (c.fewerRepeats ? 'r' : ''))() };
+}
+
+function activityLine(c) {
+  const rd = c.rd;
+  if (!rd.worked) return noWorkActivity(c);
+  const f = rd.flags;
+  const weak = ['overDialing', 'skimming', 'lowVolume', 'lowPickup'].find(k => f[k]);
+  if (weak) {
+    return { kind: weak, text: pickFor(DIAG_TEXT[weak](c).map(s => () => s), c.agent, c.date, 'act-' + weak)() };
+  }
+  const mv = movementActivity(c);
+  const dropped = ['downBoth', 'sameLessConn', 'noLanding'].includes(mv.kind);
+  const strong = ['strongCoverage', 'strongConnect'].find(k => f[k]);
+  if (strong && !dropped) {
+    return { kind: mv.kind, strength: strong, text: pickFor(DIAG_TEXT[strong](c).map(s => () => s), c.agent, c.date, 'act-' + strong)() };
+  }
+  return mv;
 }
 
 // ---------- COLLECTIONS ----------
-function collectionsLine(c) {
+function collectionsDiag(c) {
+  const rd = c.rd, f = rd.flags, b = rd.b;
+  if (!b) return null;
+  const pool = [];
+  if (f.notFirm) {
+    pool.push(
+      () => `${fmtNum(rd.C)} connects, more than the team's ${fmtNum(b.medSucc)}, but only ${fmtMoney(rd.vpc)} came out of each one against ${fmtMoney(b.medVpc)} for the team. People are answering and you're not walking away with a firm amount and date.`,
+      () => `Plenty of conversations (${fmtNum(rd.C)}) and little money from them: ${fmtMoney(rd.vpc)} per connect, the team gets ${fmtMoney(b.medVpc)}. Those calls are ending without a commitment.`
+    );
+    return { key: 'notFirm', pool };
+  }
+  if (f.lowValue) {
+    if (rd.ownVpc != null) {
+      pool.push(
+        () => `Money per connect was ${fmtMoney(rd.vpc)}. Your own cycle average is ${fmtMoney(rd.ownVpc)} and the team is at ${fmtMoney(b.medVpc)}. You're settling for smaller payments than you were getting before.`,
+        () => `You're taking less per connect than usual: ${fmtMoney(rd.vpc)} against ${fmtMoney(rd.ownVpc)} on average this cycle. The team gets ${fmtMoney(b.medVpc)}.`
+      );
+    } else {
+      pool.push(
+        () => `Money per connect was ${fmtMoney(rd.vpc)} against ${fmtMoney(b.medVpc)} for the team. You're closing, but for smaller amounts than the rest.`
+      );
+    }
+    return { key: 'lowValue', pool };
+  }
+  if (f.strongCloser) {
+    pool.push(
+      () => `${fmtMoney(rd.vpc)} per connect, the team is at ${fmtMoney(b.medVpc)}. You're getting real money out of your connects.`,
+      () => `Your connects are worth more than most: ${fmtMoney(rd.vpc)} each against ${fmtMoney(b.medVpc)} for the team.`
+    );
+    return { key: 'strongCloser', pool };
+  }
+  return null;
+}
+
+function outcomeLine(c) {
   const rl = c.rl, pl = c.pl;
   if (c.R == null) return `No collections logged for the ${rl} yet.`;
   const R = c.R, rT = c.rT;
@@ -1744,7 +2063,6 @@ function collectionsLine(c) {
   const isTopR = !!(topR && topR.n === c.agent);
   const key = 'coll';
 
-  // no usable previous day: report the one day on its own
   if (!c.s0 || c.P == null || c.priorBaseline || c.pT <= 0) {
     const pool = rHit ? [
       () => `${cap(rl)}: on target, ${fmtMoney(R)} against ${fmtMoney(rT)}.`,
@@ -1753,7 +2071,7 @@ function collectionsLine(c) {
       () => `${cap(rl)}: ${fmtMoney(R)} against ${fmtMoney(rT)}, short by ${fmtMoney(rMissBy)}.`,
       () => `Missed on the ${rl} by ${fmtMoney(rMissBy)} (${fmtMoney(R)} vs ${fmtMoney(rT)}).`
     ];
-    return pickFor(pool, c.agent, c.date, key + 'solo')();
+    return pickFor(pool, c.agent, c.date, key + 'solo' + (rHit ? 'H' : 'M'))();
   }
 
   const P = c.P, pT = c.pT;
@@ -1763,8 +2081,6 @@ function collectionsLine(c) {
   const mult = R / rT;
   const topP = teamTopCollection(c.priorDate);
   const isTopP = !!(topP && topP.n === c.agent);
-  const inMotion = rHit && c.tDir === -1 && c.cDir === -1
-    ? ` Your calling was down, so that money probably came from something already in motion, not new work.` : '';
   let pool;
 
   if (!pHit && rHit) {
@@ -1801,86 +2117,175 @@ function collectionsLine(c) {
       () => `${cap(pl)} short by ${fmtMoney(pMissBy)}, ${rl} short by ${fmtMoney(rMissBy)}. ${wider ? 'The gap got wider.' : 'Closer than the day before, still under.'}`
     ];
   }
-  return pickFor(pool, c.agent, c.date, key + (pHit ? 'H' : 'M') + (rHit ? 'H' : 'M'))() + inMotion;
+  return pickFor(pool, c.agent, c.date, key + (pHit ? 'H' : 'M') + (rHit ? 'H' : 'M'))();
 }
 
-function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function collectionsLine(c) {
+  const rd = c.rd;
+  if (!rd.worked) {
+    if (c.R != null && c.R > 0 && !c.refBaseline) {
+      return `${fmtMoney(c.R)} still came in on the ${c.rl} with no calls from you. That's a payment already in motion, not new work.`;
+    }
+    if (c.R == null || c.refBaseline) return `No collections logged for you on the ${c.rl}.`;
+    return c.rT > 0 ? `Nothing collected on the ${c.rl}, against a daily number of ${fmtMoney(c.rT)}.` : `Nothing collected on the ${c.rl}.`;
+  }
+  let text = outcomeLine(c);
+  const diag = collectionsDiag(c);
+  if (diag) {
+    text += ' ' + pickFor(diag.pool, c.agent, c.date, 'cdiag-' + diag.key)();
+  } else if (c.R != null && c.rT > 0 && c.R >= c.rT && c.tDir === -1 && c.cDir === -1) {
+    text += ' Your calling was down, so that money probably came from something already in motion, not new work.';
+  }
+  return text;
+}
 
 // ---------- FOCUS ----------
-function focusLine(c, kind) {
+const FOCUS_DOMAIN = { overDialing: 'act', skimming: 'act', lowVolume: 'act', lowPickup: 'act', notFirm: 'money', lowValue: 'money' };
+
+const FOCUS_MAIN = {
+  overDialing: (c, peer) => [
+    `Stop at ${FB.redialCap} attempts on an account and move to the next one. ${peer}`,
+    `Set a cap: ${FB.redialCap} tries per account, then open a new one. Your connects come from the accounts you haven't touched yet. ${peer}`,
+    `Fewer redials, more accounts. Aim for at least ${fmtNum(c.rd.b.medTask)} accounts opened today, that's where the team sits. ${peer}`
+  ],
+  notFirm: (c, peer) => [
+    `You're getting people to answer, so use the call. Before you hang up, get an amount and a date. No date means no payment. ${peer}`,
+    `Close every connect with an amount and a date. If they say they'll try, ask for the day. ${peer}`,
+    `The conversations are happening, the commitment isn't. Say the amount owed, ask for all of it, and only then work down. ${peer}`
+  ],
+  lowValue: (c, peer) => [
+    `Ask for the full amount first and come down only when you have to. A smaller amount with a date beats a bigger promise without one. ${peer}`,
+    `Don't take the first low number. Push back once before you accept a partial. ${peer}`
+  ],
+  skimming: (c, peer) => [
+    `Every account you open gets a call before you move on. ${peer}`,
+    `If you're not going to call it, don't open it. Close the gap between accounts opened and calls made. ${peer}`
+  ],
+  lowVolume: (c, peer) => [
+    `Get your calls up to ${fmtNum(c.rd.b.medCall)} today, that's the team level. Start dialing in the first hour. ${peer}`,
+    `The gap is volume. ${fmtNum(Math.max(0, c.rd.b.medCall - c.rd.K))} more calls gets you to the team pace. ${peer}`
+  ],
+  lowPickup: (c, peer) => [
+    c.bestHour ? `Put your best accounts into ${c.bestHour}, that's when yours pick up. ${peer}` : `Try the same accounts at different hours before you redial them. ${peer}`,
+    `If the same numbers keep ringing out, stop redialing them and move on. ${peer}`
+  ]
+};
+
+const FOCUS_SHORT = {
+  overDialing: () => `Also cap redials at ${FB.redialCap} per account.`,
+  skimming: () => `Also call every account you open.`,
+  lowVolume: () => `Also get the dial count up.`,
+  lowPickup: () => `Also move your calling into the hours that connect.`,
+  notFirm: () => `And get an amount and a date on every connect.`,
+  lowValue: () => `And don't settle for the first small number.`
+};
+
+function noWorkFocus(c) {
+  const pace = fmtNum(c.prog.paceNeeded);
+  return pickFor([
+    () => `Be on the phones from the first hour today. The day you lost pushes your daily number up to ${pace}.`,
+    () => `Start dialing first thing today. Your daily number is now ${pace} and it only goes up with every day that's empty.`,
+    () => `No activity is the problem here, nothing else to fix yet. Get on the phones early today and work through the accounts.`
+  ], c.agent, c.date, 'focus-noWork')();
+}
+
+function movementFocus(c, kind) {
   const rHit = c.R != null && c.rT > 0 ? c.R >= c.rT : (c.rT <= 0);
   const key = 'focus' + kind;
   const when = whenLabel(c);
+  const f = c.rd.flags;
+  const dropKinds = ['downBoth', 'sameLessConn', 'noLanding'];
   let pool;
-  switch (kind) {
-    case 'strong':
-      pool = [
-        () => `This is the level to repeat, more accounts AND more connects, not just one.`,
-        () => `Same again today. Keep the account count up and the connects will keep coming with it.`,
-        () => `Don't change what you did. Same volume, and get a firm amount and date on every connect you land.`
-      ]; break;
-    case 'noLanding':
-      pool = [
-        () => `You're calling more people, good. Now close more of the ones you reach.`,
-        () => `The effort is there, now tighten up so more of those calls turn into real connects and payments.`,
-        () => `A shorter list that picks up beats a long one that doesn't. Pick your accounts better before adding more dials.`
-      ];
-      if (c.bestHour) pool.push(() => `More dials isn't the problem. Your connects came mostly around ${c.bestHour}, so put your best accounts in that window.`);
-      break;
-    case 'smart':
-      pool = [
-        () => `More accounts, less repeat dialing. Keep doing exactly this.`,
-        () => `This is working. Keep dialing this way and don't go back to redialing the same numbers.`,
-        () => `Keep this pattern today and push a little harder on the connects.`
-      ]; break;
-    case 'moreHeld':
-      pool = [
-        () => `Volume is up. Now get the connects to follow it, that's where the extra money is.`,
-        () => c.bestHour ? `You've got the volume. Your connects came mostly around ${c.bestHour}, so lean your best accounts into that window.` : `You've got the volume. Work on the hour you call each account so more of them get answered.`
-      ]; break;
-    case 'flat':
-      pool = [
-        () => `Steady is fine, but the target needs more. Push a few extra accounts and a few more connects today.`,
-        () => `Nothing wrong with ${when === 'yesterday' ? 'yesterday' : 'that day'}, nothing extra either. Add volume early in the day.`
-      ]; break;
-    case 'sameMoreConn':
-      pool = [
-        () => `You're getting more from the same effort. Now add a few more accounts on top.`,
-        () => `The connect rate is improving. Keep it and raise the account count a little.`
-      ]; break;
-    case 'sameLessConn':
-      pool = [
-        () => `Same effort, fewer people picking up. Try your accounts at a different hour before adding more dials.`,
-        () => c.bestHour ? `Your connects came mostly around ${c.bestHour}. Move more of your calling into that window.` : `Change the hour you call the same accounts before you add more dials.`
-      ]; break;
-    case 'downBoth':
-      pool = rHit ? [
-        () => `Your calling actually went down ${when}. Get your numbers back up today, don't rely on old payments.`,
-        () => `Money came in but the work behind it dropped. Get the dial count back up today so tomorrow isn't empty.`
-      ] : [
-        () => `Your calling dropped ${when} and the money didn't come either. Get on the phones early today and rebuild the numbers.`,
-        () => `Numbers are down across the board. Start the day on your best accounts and get the dial count back up.`
-      ]; break;
-    case 'downBetter':
-      pool = [
-        () => `You're picking well. Bring the volume back up and keep that hit rate.`,
-        () => `Good hit rate on less work. Add accounts without letting that slip.`
-      ]; break;
-    case 'downHeld':
-      pool = [
-        () => `Good return on less work. Now bring the volume back up without losing that.`,
-        () => `You can do the same with fewer accounts, so imagine it with more. Add volume today.`
-      ]; break;
-    default: // 'first'
-      pool = rHit ? [
-        () => `Good start. Hold the same pace today.`
-      ] : [
-        () => `Get the account count up early today and push for a firm amount and date on every connect.`
-      ];
+  if (!dropKinds.includes(kind) && f.strongCloser) {
+    pool = [
+      () => `Your closing is carrying you at ${fmtMoney(c.rd.vpc)} per connect. Add a few more accounts and that multiplies.`,
+      () => `Keep asking for what you're asking for. More accounts on top of this closing is the fastest way to the target.`
+    ];
+  } else if (!dropKinds.includes(kind) && f.strongCoverage) {
+    pool = [
+      () => `Keep the coverage up and don't start redialing. Now make each connect count with an amount and a date.`,
+      () => `You're opening accounts faster than most. Protect that, and push the connects you get all the way to a payment.`
+    ];
+  } else if (!dropKinds.includes(kind) && f.strongConnect) {
+    pool = [
+      () => `Your connect rate is the asset. Add more accounts and it turns straight into more connects.`,
+      () => `People pick up for you. Open a few more accounts today and get an amount and a date from each one.`
+    ];
+  } else {
+    switch (kind) {
+      case 'strong':
+        pool = [
+          () => `This is the level to repeat, more accounts AND more connects, not just one.`,
+          () => `Same again today. Keep the account count up and the connects will keep coming with it.`,
+          () => `Don't change what you did. Same volume, and get a firm amount and date on every connect you land.`
+        ]; break;
+      case 'noLanding':
+        pool = [
+          () => `You're calling more people, good. Now close more of the ones you reach.`,
+          () => `The effort is there, now tighten up so more of those calls turn into real connects and payments.`,
+          () => `A shorter list that picks up beats a long one that doesn't. Pick your accounts better before adding more dials.`
+        ];
+        if (c.bestHour) pool.push(() => `More dials isn't the problem. Your connects came mostly around ${c.bestHour}, so put your best accounts in that window.`);
+        break;
+      case 'smart':
+        pool = [
+          () => `More accounts, less repeat dialing. Keep doing exactly this.`,
+          () => `This is working. Keep dialing this way and don't go back to redialing the same numbers.`,
+          () => `Keep this pattern today and push a little harder on the connects.`
+        ]; break;
+      case 'moreHeld':
+        pool = [
+          () => `Volume is up. Now get the connects to follow it, that's where the extra money is.`,
+          () => c.bestHour ? `You've got the volume. Your connects came mostly around ${c.bestHour}, so lean your best accounts into that window.` : `You've got the volume. Work on the hour you call each account so more of them get answered.`
+        ]; break;
+      case 'flat':
+        pool = [
+          () => `Steady is fine, but the target needs more. Push a few extra accounts and a few more connects today.`,
+          () => `Nothing wrong with the day, nothing extra either. Add volume early.`
+        ]; break;
+      case 'sameMoreConn':
+        pool = [
+          () => `You're getting more from the same effort. Now add a few more accounts on top.`,
+          () => `The connect rate is improving. Keep it and raise the account count a little.`
+        ]; break;
+      case 'sameLessConn':
+        pool = [
+          () => `Same effort, fewer people picking up. Try your accounts at a different hour before adding more dials.`,
+          () => c.bestHour ? `Your connects came mostly around ${c.bestHour}. Move more of your calling into that window.` : `Change the hour you call the same accounts before you add more dials.`
+        ]; break;
+      case 'downBoth':
+        pool = rHit ? [
+          () => `Your calling actually went down ${when}. Get your numbers back up today, don't rely on old payments.`,
+          () => `Money came in but the work behind it dropped. Get the dial count back up today so tomorrow isn't empty.`
+        ] : [
+          () => `Your calling dropped ${when} and the money didn't come either. Get on the phones early today and rebuild the numbers.`,
+          () => `Numbers are down across the board. Start the day on your best accounts and get the dial count back up.`
+        ]; break;
+      case 'downBetter':
+        pool = [
+          () => `You're picking well. Bring the volume back up and keep that hit rate.`,
+          () => `Good hit rate on less work. Add accounts without letting that slip.`
+        ]; break;
+      case 'downHeld':
+        pool = [
+          () => `Good return on less work. Now bring the volume back up without losing that.`,
+          () => `You can do the same with fewer accounts, so imagine it with more. Add volume today.`
+        ]; break;
+      case 'back':
+        pool = [
+          () => `Good to see you back on the phones. Hold this level today and don't let another empty day in.`,
+          () => `Now keep it going. One day back doesn't fix the gap, a week of this does.`
+        ]; break;
+      default: // 'first'
+        pool = rHit ? [
+          () => `Good start. Hold the same pace today.`
+        ] : [
+          () => `Get the account count up early today and push for a firm amount and date on every connect.`
+        ];
+    }
   }
-  let text = pickFor(pool, c.agent, c.date, key)();
-  // Connects are there but money isn't: say so, since that's a different fix.
-  if (!rHit && c.s0 && c.cDir >= 0 && kind !== 'noLanding' && kind !== 'downBoth') {
+  let text = pickFor(pool, c.agent, c.date, key + (f.strongCloser ? 'C' : f.strongCoverage ? 'V' : f.strongConnect ? 'R' : ''))();
+  if (!rHit && c.s0 && c.cDir >= 0 && !['noLanding', 'downBoth'].includes(kind)) {
     text += ' ' + pickFor([
       `Get a firm amount and date on every connect.`,
       `The connects are there, so walk each one to a payment.`
@@ -1889,31 +2294,102 @@ function focusLine(c, kind) {
   return text;
 }
 
-function targetLine(c) {
-  return c.prog.remaining <= 0 ? 'Cycle target reached, anything more is a bonus' : fmtNum(c.prog.paceNeeded);
+function focusLine(c, movementKind) {
+  const rd = c.rd;
+  if (!rd.worked) return noWorkFocus(c);
+  const f = rd.flags;
+  const order = ['overDialing', 'notFirm', 'lowValue', 'skimming', 'lowVolume', 'lowPickup'];
+  const on = order.filter(k => f[k]);
+  if (!on.length) return movementFocus(c, movementKind);
+  const main = on[0];
+  const second = on.find(k => FOCUS_DOMAIN[k] !== FOCUS_DOMAIN[main]);
+  const pool = FOCUS_MAIN[main](c, peerLine(c, main)).map(s => () => s.trim());
+  let text = pickFor(pool, c.agent, c.date, 'focus-' + main)();
+  if (second) text += ' ' + FOCUS_SHORT[second]();
+  return text;
 }
 
+// ---------- PATTERN ----------
+function patternWhen(p, k) {
+  return p.streaks[k] >= 3 ? `${p.streaks[k]} days running` : `${p.counts[k]} of the last ${p.n} days`;
+}
+const PATTERN_TEXT = {
+  noWork: (p, c) => `No activity logged on ${p.counts.noWork} of the last ${p.n} days. That's a pattern, not a one-off.`,
+  overDialing: (p, c) => `Over-dialing has shown up ${patternWhen(p, 'overDialing')}, averaging ${f1(p.detail.overDialing)} calls per account on those days. This is a habit now.`,
+  notFirm: (p, c) => `Not closing firm has shown up ${patternWhen(p, 'notFirm')}, about ${fmtMoney(p.detail.notFirm)} per connect on those days. Lots of conversations, little commitment, and it keeps happening.`,
+  lowValue: (p, c) => `Small payments ${patternWhen(p, 'lowValue')}, about ${fmtMoney(p.detail.lowValue)} per connect on those days. It's how you're negotiating now, not a bad call.`,
+  skimming: (p, c) => `Opening accounts without calling them: ${patternWhen(p, 'skimming')}.`,
+  lowVolume: (p, c) => `Low dial volume ${patternWhen(p, 'lowVolume')}, averaging ${fmtNum(p.detail.lowVolume)} calls on those days.`,
+  lowPickup: (p, c) => `Low connect rate ${patternWhen(p, 'lowPickup')}, averaging ${fmtPct((p.detail.lowPickup || 0) * 100)} on those days.`,
+  strongCoverage: (p, c) => `Clean coverage ${patternWhen(p, 'strongCoverage')} (more accounts than most, few redials). That's real.`,
+  strongCloser: (p, c) => `Strong closing ${patternWhen(p, 'strongCloser')}, about ${fmtMoney(p.detail.strongCloser)} per connect. That's real.`,
+  strongConnect: (p, c) => `Connect rate above the team ${patternWhen(p, 'strongConnect')}. That's real.`
+};
+
+function patternLine(c) {
+  const p = c.pattern;
+  if (!p || !p.confirmed.length) return null;
+  const f = Object.assign({}, c.rd.flags, { noWork: !c.rd.worked });
+  const items = PATTERN_KEYS.filter(k => p.confirmed.includes(k)).slice(0, 2);
+  return items.map(k => PATTERN_TEXT[k](p, c) + (f[k] ? '' : ' Not today, keep it that way.')).join(' ');
+}
+
+// ---------- TARGET ----------
+function targetLine(c) {
+  const p = c.prog;
+  if (p.remaining <= 0) return 'Cycle target reached, anything more is a bonus';
+  let t = fmtNum(p.paceNeeded);
+  if (!c.rd.worked && c.rT > 0 && p.paceNeeded > c.rT * 1.02) t += ` (up from ${fmtNum(c.rT)} because of the day you lost)`;
+  return t;
+}
+
+// ---------- tags for the card ----------
+const FLAG_TAG = {
+  noWork: ['No activity', 'red'], overDialing: ['Over-dialing', 'red'], skimming: ['Skimming tasks', 'red'],
+  lowVolume: ['Low volume', 'red'], lowPickup: ['Low connect rate', 'red'], notFirm: ['Not firm', 'red'],
+  lowValue: ['Small payments', 'amber'], strongCoverage: ['Clean coverage', 'green'],
+  strongCloser: ['Strong closer', 'green'], strongConnect: ['Strong connect rate', 'green']
+};
+function tagsFor(c) {
+  const f = Object.assign({}, c.rd.flags, { noWork: !c.rd.worked });
+  return PATTERN_KEYS.filter(k => f[k]).map(k => {
+    const conf = c.pattern && c.pattern.confirmed.includes(k);
+    return { text: FLAG_TAG[k][0] + (conf ? ` (${c.pattern.counts[k]}/${c.pattern.n} days)` : ''), cls: FLAG_TAG[k][1] };
+  });
+}
+
+// ---------- assemble ----------
 function quickFeedbackCore(agent, date) {
   const c = quickContext(agent, date);
-  if (!c.logged) {
-    return { name: c.name, logged: false, text: `${c.name}\nNo activity logged on ${date} yet.` };
-  }
+  if (!c.hasData) return { name: c.name, hasData: false, text: `${c.name}\nNo data loaded for ${date} yet.` };
   const act = activityLine(c);
   const activity = act.text;
   const collections = collectionsLine(c);
   const focus = focusLine(c, act.kind);
+  const pattern = patternLine(c);
   const target = targetLine(c);
-  const text = [c.name, `Activity: ${activity}`, `Collections: ${collections}`, `Focus: ${focus}`, `Target: ${target}`].join('\n');
-  return { name: c.name, logged: true, activity, collections, focus, target, text };
+  const lines = [c.name, `Activity: ${activity}`, `Collections: ${collections}`, `Focus: ${focus}`];
+  if (pattern) lines.push(`Pattern: ${pattern}`);
+  lines.push(`Target: ${target}`);
+  return { name: c.name, hasData: true, worked: c.rd.worked, activity, collections, focus, pattern, target, tags: tagsFor(c), text: lines.join('\n') };
 }
 
-// Assign wording for the whole roster in roster order the first time a day is
-// asked for, so who gets which variant doesn't depend on which card was opened first.
+// Assign wording for the whole roster, in roster order, the first time a day (or
+// new data for it) is asked for, so who gets which variant doesn't depend on
+// which card was opened first.
 const QUICK_WARMED = {};
+function dataSig(date) {
+  const pd = priorRecordDate(date);
+  return JSON.stringify(STATE.daily[date] || null).length + '|' + (pd ? JSON.stringify(STATE.daily[pd]).length : 0) + '|' + activeNames().length;
+}
 function quickFeedback(agent, date) {
-  if (!QUICK_WARMED[date] && STATE.daily[date]) {
-    QUICK_WARMED[date] = true;
-    activeNames().forEach(n => quickFeedbackCore(n, date));
+  if (STATE.daily[date]) {
+    const sig = dataSig(date);
+    if (QUICK_WARMED[date] !== sig) {
+      QUICK_WARMED[date] = sig;
+      resetPhraseBook(date);
+      activeNames().forEach(n => quickFeedbackCore(n, date));
+    }
   }
   return quickFeedbackCore(agent, date);
 }
@@ -1922,15 +2398,252 @@ function quickFeedbackText(agent, date) { return quickFeedback(agent, date).text
 
 function quickFeedbackHtml(agent, date) {
   const q = quickFeedback(agent, date);
-  if (!q.logged) return `<span class="muted">No activity logged for ${escapeHtml(agent)} on ${escapeHtml(date)} yet.</span>`;
+  if (!q.hasData) return `<span class="muted">No data loaded for ${escapeHtml(date)} yet.</span>`;
   const row = (label, val) => `<div style="margin-bottom:7px;"><b>${label}:</b> ${escapeHtml(val)}</div>`;
-  return row('Activity', q.activity) + row('Collections', q.collections) + row('Focus', q.focus) + row('Target', q.target);
+  return row('Activity', q.activity) + row('Collections', q.collections) + row('Focus', q.focus) +
+    (q.pattern ? row('Pattern', q.pattern) : '') + row('Target', q.target);
+}
+
+// ===================== WHAT WENT DOWN =====================
+function dropsFor(agent, date) {
+  const pd = priorRecordDate(date);
+  if (!pd) return null;
+  const a = dayRead(agent, pd), b = dayRead(agent, date);
+  const out = { agent, priorDate: pd, items: [], noWork: false, sev: 0, collDrop: 0 };
+  if (!a.worked) return out;
+  if (!b.worked) {
+    out.noWork = true; out.sev = 1000;
+    out.items.push(`no activity logged (was ${fmtNum(a.T)} accounts, ${fmtNum(a.C)} connects)`);
+    return out;
+  }
+  const chk = (label, x, y, minAbs, minRel) => {
+    if (x - y >= minAbs && (x - y) / x >= minRel) {
+      const pct = Math.round((x - y) / x * 100);
+      out.items.push(`${label} ${fmtNum(x)} to ${fmtNum(y)} (-${pct}%)`);
+      out.sev += pct;
+    }
+  };
+  chk('accounts', a.T, b.T, 5, 0.10);
+  chk('calls', a.K, b.K, 10, 0.10);
+  chk('connects', a.C, b.C, 3, 0.12);
+  const P = a.s.collections, R = b.s.collections;
+  if (P != null && R != null && !isBaselineDay(agent, pd) && !isBaselineDay(agent, date) && P - R >= 100000 && (P - R) / P >= 0.10) {
+    const pct = Math.round((P - R) / P * 100);
+    out.items.push(`collections ${fmtMoney(P)} to ${fmtMoney(R)} (-${pct}%)`);
+    out.sev += pct; out.collDrop = P - R;
+  }
+  return out;
+}
+
+function teamTotals(names, date) {
+  const t = { T: 0, K: 0, C: 0, R: 0, worked: 0, total: names.length };
+  names.forEach(n => {
+    const s = dayStats(STATE, n, date);
+    if (s.totalTask > 0 || s.totalCall > 0) { t.worked++; t.T += s.totalTask; t.K += s.totalCall; t.C += s.totalSucc; }
+    if (s.collections != null && !isBaselineDay(n, date)) t.R += s.collections;
+  });
+  return t;
+}
+
+function wentDownData(names, date) {
+  const pd = priorRecordDate(date);
+  if (!pd) return null;
+  const rows = names.map(n => Object.assign({ name: shortName(n) }, dropsFor(n, date))).filter(r => r.items && r.items.length);
+  rows.sort((x, y) => (y.sev - x.sev) || (y.collDrop - x.collDrop));
+  const a = teamTotals(names, pd), b = teamTotals(names, date);
+  const parts = [];
+  const cmp = (label, x, y, fmt) => { if (y < x) parts.push(`${label} ${fmt(x)} to ${fmt(y)} (${fmt(y - x)})`); };
+  cmp('collections', a.R, b.R, fmtMoney);
+  cmp('connects', a.C, b.C, fmtNum);
+  cmp('calls', a.K, b.K, fmtNum);
+  cmp('accounts', a.T, b.T, fmtNum);
+  cmp('agents working', a.worked, b.worked, fmtNum);
+  return { priorDate: pd, rows, teamLine: parts.join(', ') };
+}
+
+function wentDownText(names, date) {
+  const d = wentDownData(names, date);
+  if (!d) return 'No earlier day on record to compare against yet.';
+  const lines = [`What went down on the ${ordinalDay(date)}, compared with the ${ordinalDay(d.priorDate)}`];
+  lines.push(d.teamLine ? `Team: ${d.teamLine}` : 'Team: nothing dropped overall.');
+  d.rows.forEach(r => lines.push(`${r.name}: ${r.items.join(', ')}`));
+  if (!d.rows.length) lines.push('No individual drops beyond the usual ups and downs.');
+  return lines.join('\n');
+}
+
+function wentDownHtml(names, date) {
+  const d = wentDownData(names, date);
+  const head = `<div class="card-header">What went down <span class="right muted">${escapeHtml(date)} vs ${d ? escapeHtml(d.priorDate) : 'no earlier day'}</span></div>`;
+  if (!d) return `<div class="card">${head}<div class="muted small">No earlier day on record to compare against yet.</div></div>`;
+  const teamLine = d.teamLine ? `<div class="need-line" style="margin-bottom:8px;"><b>Team:</b> ${escapeHtml(d.teamLine)}</div>` : `<div class="muted small" style="margin-bottom:8px;">Team totals held or went up.</div>`;
+  const rows = d.rows.map(r => `<div style="margin-bottom:6px;"><b>${escapeHtml(r.name)}</b> <span class="${r.noWork ? 'neg' : 'muted'}">${escapeHtml(r.items.join(' · '))}</span></div>`).join('') ||
+    `<div class="muted small">No individual drops beyond the usual ups and downs.</div>`;
+  return `<div class="card">${head}${teamLine}${rows}<div class="copy-line"><button class="btn btn-sm" id="wentdown-copy-btn">Copy</button></div></div>`;
+}
+
+// ===================== TEAM VS TEAM =====================
+const TEAM_METRICS = [
+  { key: 'showUp', label: 'Showing up (agent-days with activity)', hi: true, val: t => t.worked / t.agentDays, fmt: v => fmtPct(v * 100),
+    advice: 'More empty agent-days. Look at start-of-shift discipline and attendance first, nothing else works without it.' },
+  { key: 'coverage', label: 'Accounts worked per agent per day', hi: true, val: t => t.T / t.worked, fmt: v => fmtNum(v),
+    agentVal: w => w.avgT, need: w => w.days >= 1,
+    advice: 'Open more accounts per day and cap redials so the time goes to fresh accounts.' },
+  { key: 'dial', label: 'Calls per agent per day', hi: true, val: t => t.K / t.worked, fmt: v => fmtNum(v),
+    agentVal: w => w.avgK, need: w => w.days >= 1,
+    advice: 'Raise the dial count and start on the phones in the first hour.' },
+  { key: 'connects', label: 'Connects per agent per day', hi: true, val: t => t.C / t.worked, fmt: v => fmtNum(v),
+    agentVal: w => w.avgC, need: w => w.days >= 1,
+    advice: 'Connects come from accounts opened times pick-up rate. Check which of the two is lower in the rows above.' },
+  { key: 'rate', label: 'Connect rate (connects per call)', hi: true, val: t => t.K ? t.C / t.K : 0, fmt: v => fmtPct(v * 100),
+    agentVal: w => w.rate, need: w => w.K >= 40,
+    advice: 'Call in the hours that connect and stop redialing numbers that ring out.' },
+  { key: 'repeat', label: 'Calls per account (lower means less redialing)', hi: false, val: t => t.T ? t.K / t.T : 0, fmt: v => f1(v),
+    agentVal: w => w.rep, need: w => w.rep >= 1,
+    advice: 'Too much redialing. Cap attempts per account and move on.' },
+  { key: 'vpc', label: 'Money per connect', hi: true, val: t => t.Cw ? t.Rw / t.Cw : 0, fmt: v => fmtMoney(v),
+    agentVal: w => w.vpc, need: w => w.Cr >= 10,
+    advice: 'Ask for the full amount first and get an amount and a date on every connect.' },
+  { key: 'pace', label: 'Collections against daily target', hi: true, val: t => t.tgt ? t.Rw / t.tgt : 0, fmt: v => fmtPct(v * 100),
+    advice: 'Behind pace on the days they worked. The rows above say where the leak is.' }
+];
+
+function bestAgentOnMetric(team, m) {
+  if (!m.agentVal) return null;
+  let best = null;
+  team.names.forEach(n => {
+    const w = team.per[n];
+    if (!w || w.days < 1 || (m.need && !m.need(w))) return;
+    const v = m.agentVal(w);
+    if (!(v > 0)) return;
+    if (!best || (m.hi ? v > best.v : v < best.v)) best = { n, v };
+  });
+  return best;
+}
+
+function teamCompareData(date) {
+  const dates = windowDates(date);
+  if (!dates.length) return null;
+  const groups = {};
+  activeRoster().forEach(a => { const t = a.team || 'Unassigned'; (groups[t] = groups[t] || []).push(a.name); });
+  const teams = Object.keys(groups).map(tn => {
+    const names = groups[tn];
+    const t = { name: tn, names, agentDays: names.length * dates.length, worked: 0, T: 0, K: 0, C: 0, Rw: 0, Cw: 0, tgt: 0, hourSucc: new Array(24).fill(0), per: {} };
+    names.forEach(n => {
+      const w = windowTotals(n, dates);
+      t.per[n] = w;
+      t.worked += w.days; t.T += w.T; t.K += w.K; t.C += w.C; t.Rw += w.R; t.Cw += w.Cr;
+      dates.forEach(d => {
+        const s = dayStats(STATE, n, d);
+        for (let h = 0; h < 24; h++) t.hourSucc[h] += s.succ[h] || 0;
+        if ((s.totalTask > 0 || s.totalCall > 0) && s.collections != null && !isBaselineDay(n, d)) t.tgt += dailyTargetOn(n, d);
+      });
+    });
+    return t;
+  }).filter(t => t.worked > 0);
+
+  teams.forEach(t => {
+    t.better = []; t.weaker = []; t.level = [];
+    TEAM_METRICS.forEach(m => {
+      const mine = m.val(t);
+      const others = teams.filter(o => o !== t).map(o => m.val(o)).filter(v => v > 0);
+      if (!(mine > 0) || !others.length) return;
+      const avg = others.reduce((x, y) => x + y, 0) / others.length;
+      const ratio = mine / avg;
+      const good = m.hi ? ratio : 1 / ratio;
+      const entry = { m, mine, avg, pct: Math.round((ratio - 1) * 100), good };
+      if (good >= 1.08) t.better.push(entry);
+      else if (good <= 0.92) {
+        const bestTeam = teams.reduce((b, o) => (!b || (m.hi ? m.val(o) > m.val(b) : m.val(o) < m.val(b) && m.val(o) > 0)) ? o : b, null);
+        entry.bestTeam = bestTeam && bestTeam !== t ? bestTeam : null;
+        entry.bestAgent = entry.bestTeam ? bestAgentOnMetric(entry.bestTeam, m) : null;
+        t.weaker.push(entry);
+      } else t.level.push(entry);
+    });
+    t.better.sort((x, y) => y.good - x.good);
+    t.weaker.sort((x, y) => x.good - y.good);
+    const sw = strongWeakHours(t.hourSucc, STATE.settings);
+    t.bestHour = sw.strongest && sw.strongest.v > 0 ? hourLabel(sw.strongest.h) : null;
+  });
+  return { dates, teams };
+}
+
+function teamCompareLines(t, teams) {
+  const vs = teams.length === 2 ? teams.find(o => o !== t).name : `the other teams' average`;
+  const lines = { better: [], weaker: [], level: '', hour: '' };
+  t.better.forEach(e => lines.better.push(`${e.m.label}: ${e.m.fmt(e.mine)} vs ${e.m.fmt(e.avg)} (${e.pct > 0 ? '+' : ''}${e.pct}%)`));
+  t.weaker.forEach(e => {
+    let s = `${e.m.label}: ${e.m.fmt(e.mine)} vs ${e.m.fmt(e.avg)} (${e.pct > 0 ? '+' : ''}${e.pct}%).`;
+    if (e.bestTeam) {
+      s += ` Copy ${e.bestTeam.name}`;
+      if (e.bestAgent) s += `, start with ${shortName(e.bestAgent.n)} (${e.m.fmt(e.bestAgent.v)})`;
+      s += '.';
+    }
+    s += ' ' + e.m.advice;
+    lines.weaker.push(s);
+  });
+  lines.level = t.level.map(e => e.m.label).join(', ');
+  lines.hour = t.bestHour ? `Connects best around ${t.bestHour}.` : '';
+  lines.vs = vs;
+  return lines;
+}
+
+function teamCompareText(date) {
+  const d = teamCompareData(date);
+  if (!d || d.teams.length < 2) return 'Only one team has activity in this window, nothing to compare yet.';
+  const out = [`Team vs team, last ${d.dates.length} logged days (${ordinalDay(d.dates[0])} to ${ordinalDay(d.dates[d.dates.length - 1])})`];
+  d.teams.forEach(t => {
+    const L = teamCompareLines(t, d.teams);
+    out.push('', `${t.name} (${t.names.length} agents, ${f1(t.worked / d.dates.length)} working on an average day)`);
+    out.push(L.better.length ? `Better than ${L.vs} at:\n- ${L.better.join('\n- ')}` : `Better than ${L.vs} at: nothing clear right now.`);
+    out.push(L.weaker.length ? `Weaker at:\n- ${L.weaker.join('\n- ')}` : 'Weaker at: nothing clear right now.');
+    if (L.level) out.push(`About level on: ${L.level}.`);
+    if (L.hour) out.push(L.hour);
+  });
+  return out.join('\n');
+}
+
+function teamCompareHtml(date) {
+  const d = teamCompareData(date);
+  const head = `<div class="card-header">Team vs team <span class="right muted">${d && d.dates.length ? `last ${d.dates.length} logged days, updates as you log` : ''}</span></div>`;
+  if (!d || d.teams.length < 2) return `<div class="card">${head}<div class="muted small">Only one team has activity in this window, nothing to compare yet.</div></div>`;
+  const cards = d.teams.map(t => {
+    const L = teamCompareLines(t, d.teams);
+    const list = (arr, cls) => arr.map(s => `<div class="${cls}" style="margin-bottom:5px;">${escapeHtml(s)}</div>`).join('');
+    return `<div class="debrief-card">
+      <div class="dc-head"><div class="dc-name">${escapeHtml(t.name)}</div><div class="dc-tags"><span class="pill pill-blue">${t.names.length} agents &middot; ${f1(t.worked / d.dates.length)} working per day</span></div></div>
+      <div class="debrief-body">
+        <div style="margin-bottom:4px;"><b>Better than ${escapeHtml(L.vs)} at</b></div>${list(L.better, 'you-line') || '<div class="muted small" style="margin-bottom:5px;">Nothing clear right now.</div>'}
+        <div style="margin:8px 0 4px;"><b>Weaker at, and who to copy</b></div>${list(L.weaker, 'need-line') || '<div class="muted small" style="margin-bottom:5px;">Nothing clear right now.</div>'}
+        ${L.level ? `<div class="muted small" style="margin-top:8px;">About level on: ${escapeHtml(L.level)}.</div>` : ''}
+        ${L.hour ? `<div class="muted small">${escapeHtml(L.hour)}</div>` : ''}
+      </div></div>`;
+  }).join('');
+  return `<div class="card">${head}<div class="grid2">${cards}</div><div class="copy-line"><button class="btn btn-sm" id="teamcompare-copy-btn">Copy</button></div></div>`;
+}
+
+
+function agentDropHtml(agent, date) {
+  const d = dropsFor(agent, date);
+  if (!d || !d.items.length) return '';
+  return `<div class="small ${d.noWork ? 'neg' : 'muted'}" style="margin-bottom:6px;">Down since the ${ordinalDay(d.priorDate)}: ${escapeHtml(d.items.join(' \u00b7 '))}</div>`;
+}
+
+function populateTeamSelect(sel) {
+  const cur = sel.value;
+  const teams = [...new Set(activeRoster().map(a => a.team || 'Unassigned'))];
+  sel.innerHTML = '<option value="__all__">All teams</option>' + teams.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function debriefTeamNames() {
+  const sel = document.getElementById('debrief-team-filter');
+  const v = (sel && sel.value) || '__all__';
+  return activeNames().filter(n => v === '__all__' || teamOf(n) === v);
 }
 
 // ===================== RENDER: DEBRIEF =====================
 function renderDebrief() {
   const dateEl = document.getElementById('debrief-date');
-  if (!dateEl.value) dateEl.value = todayStr();
+  if (!dateEl.value) dateEl.value = dayViewRefDate();
   const date = dateEl.value;
   document.getElementById('debrief-subtitle').textContent = `Human, copy-paste-ready feedback for each agent \u2014 ${date}`;
 
@@ -1939,7 +2652,8 @@ function renderDebrief() {
   const filterVal = filterSel.value || '__all__';
 
   // team summary
-  const names = activeNames();
+  populateTeamSelect(document.getElementById('debrief-team-filter'));
+  const names = debriefTeamNames();
   const dayList = names.map(n => dayStats(STATE, n, date));
   const loggedList = dayList.filter(x => x.logged);
   const totalTask = loggedList.reduce((a, x) => a + x.totalTask, 0);
@@ -1968,22 +2682,29 @@ function renderDebrief() {
       <div class="debrief-body">${teamDayNarrative(date, top, totalCall, totalSucc, split)}</div>
     </div>`;
 
+  // what went down since the previous logged day, and team vs team
+  try {
+    document.getElementById('debrief-went-down').innerHTML = wentDownHtml(names, date);
+    const wdBtn = document.getElementById('wentdown-copy-btn');
+    if (wdBtn) wdBtn.addEventListener('click', () => copyText(wentDownText(names, date), 'What went down'));
+  } catch (e) { console.error('what went down failed', e); }
+  try {
+    document.getElementById('debrief-team-compare').innerHTML = teamCompareHtml(date);
+    const tcBtn = document.getElementById('teamcompare-copy-btn');
+    if (tcBtn) tcBtn.addEventListener('click', () => copyText(teamCompareText(date), 'Team comparison'));
+  } catch (e) { console.error('team compare failed', e); }
+
   // individual debriefs
   const container = document.getElementById('debrief-agents');
   const showNames = filterVal === '__all__' ? names : [filterVal];
   container.innerHTML = showNames.map(n => {
     const d = agentDebrief(n, date);
     const tagsHtml = [
-      d.strengths.length ? `<span class="pill pill-green">Strength</span>` : '',
-      d.needs.length ? `<span class="pill pill-red">Needs Coaching</span>` : '',
+      ...quickFeedback(n, date).tags.map(t => `<span class="pill pill-${t.cls}">${escapeHtml(t.text)}</span>`),
       `<span class="pill ${d.prog.pct >= 75 ? 'pill-green' : d.prog.pct >= 40 ? 'pill-amber' : 'pill-red'}">${d.prog.pct.toFixed(0)}% of target</span>`
     ].join('');
     const bodyHtml = [
       !d.s.logged ? `<span class="muted">No activity logged for ${escapeHtml(n)} on ${date} yet.</span>` : null,
-      d.progressLine ? `<div style="margin-bottom:6px;">${escapeHtml(d.progressLine)}</div>` : null,
-      d.retroLine ? `<div style="margin-bottom:6px;">${escapeHtml(d.retroLine)}</div>` : null,
-      ...d.strengths.map(t => `<div class="you-line">You're doing this: ${escapeHtml(t)}</div>`),
-      ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)} ${escapeHtml(x.impact)}${x.peer ? '<br><span class="pill pill-blue" style="margin-top:4px;">' + escapeHtml(x.peer) + '</span>' : ''}</div>`),
       d.consistencyNote ? `<div style="margin-top:8px;">${escapeHtml(d.consistencyNote)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
       d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
@@ -1992,7 +2713,7 @@ function renderDebrief() {
 
     return `<div class="debrief-card">
       <div class="dc-head"><div class="dc-name">${escapeHtml(n)}</div><div class="dc-tags">${tagsHtml}</div></div>
-      <div class="debrief-body">${quickFeedbackHtml(n, date)}${d.s.logged ? `<details style="margin-top:10px;"><summary class="muted small" style="cursor:pointer;">Full detail (hours, cycle pace, patterns)</summary><div style="margin-top:8px;">${bodyHtml}</div></details>` : ''}</div>
+      <div class="debrief-body">${quickFeedbackHtml(n, date)}${agentDropHtml(n, date)}${d.s.logged ? `<details style="margin-top:10px;"><summary class="muted small" style="cursor:pointer;">Full detail (hours, cycle pace)</summary><div style="margin-top:8px;">${bodyHtml}</div></details>` : ''}</div>
       <div class="copy-line"><button class="btn btn-sm" data-copy-debrief="${escapeHtml(n)}">Copy Feedback</button></div>
     </div>`;
   }).join('');
@@ -2054,12 +2775,13 @@ function teamDayNarrative(date, top, totalCall, totalSucc, split) {
 
 document.getElementById('debrief-refresh-btn').addEventListener('click', () => safeRender(renderDebrief, 'Daily Debrief'));
 document.getElementById('debrief-agent-filter').addEventListener('change', () => safeRender(renderDebrief, 'Daily Debrief'));
+document.getElementById('debrief-team-filter').addEventListener('change', () => safeRender(renderDebrief, 'Daily Debrief'));
 document.getElementById('debrief-date').addEventListener('change', () => safeRender(renderDebrief, 'Daily Debrief'));
 document.getElementById('debrief-date').addEventListener('input', () => safeRender(renderDebrief, 'Daily Debrief'));
 document.getElementById('debrief-copy-all-btn').addEventListener('click', () => {
   const date = document.getElementById('debrief-date').value || todayStr();
   const names = activeNames();
-  const text = names.map(n => agentDebriefText(agentDebrief(n, date))).join('\n\n');
+  const text = debriefTeamNames().map(n => quickFeedbackText(n, date)).join('\n\n');
   copyText(text, 'Full team debrief');
 });
 
