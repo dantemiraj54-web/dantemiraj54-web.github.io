@@ -365,12 +365,13 @@ canvas{max-width:100%;}
 
 <!-- ============ AGENTS / ROSTER ============ -->
 <div class="section" id="section-roster">
-  <div class="page-header"><div><h2>Agents</h2><p>Add, remove, and set per-agent targets</p></div></div>
+  <div class="page-header"><div><h2>Agents</h2><p>Add, remove, set per-agent targets, and assign teams</p></div></div>
   <div class="card">
     <div class="card-header">Add Agent</div>
     <div class="row">
       <div class="field" style="flex:1;min-width:200px;"><label>Full name (must match CSV exactly)</label><input type="text" id="roster-add-name" placeholder="e.g. Jane Doe"></div>
       <div class="field" style="width:180px;"><label>Cycle target (UGX, optional)</label><input type="number" id="roster-add-target" step="100000" placeholder="Uses default"></div>
+      <div class="field" style="width:160px;"><label>Team</label><input type="text" id="roster-add-team" placeholder="e.g. Deal Sealers"></div>
       <button class="btn btn-green" id="roster-add-btn">Add Agent</button>
     </div>
   </div>
@@ -1270,10 +1271,22 @@ function priorDayComparison(agent, refDate, windowDates) {
   if (!priorDates.length) return null;
   const priorDate = priorDates[priorDates.length - 1];
   const priorS = dayStats(STATE, agent, priorDate);
-  const todayS = dayStats(STATE, agent, refDate);
-  const label = priorDate === addDays(refDate, -1) ? 'Yesterday' : `On ${priorDate}`;
+  const refS = dayStats(STATE, agent, refDate);
+
+  const priorLabel = priorDate === addDays(refDate, -1) ? 'The day before' : `On ${priorDate}`;
+  const refLabel = relativeDayLabel(refDate);
+  const refLabelCap = refLabel.charAt(0).toUpperCase() + refLabel.slice(1);
+
+  const priorPart = isBaselineDay(agent, priorDate)
+    ? `${priorLabel} was the cycle's opening snapshot for you \u2014 ${fmtUGX(priorS.collections || 0)} accumulated since ${cyc.start}. That day alone logged ${fmtNum(priorS.totalSucc)} connects.`
+    : `${priorLabel} you collected ${fmtUGX(priorS.collections || 0)} off ${fmtNum(priorS.totalSucc)} connects.`;
+
+  const refPart = isBaselineDay(agent, refDate)
+    ? `${refLabelCap}, ${fmtUGX(refS.collections || 0)} accumulated since the cycle started, off ${fmtNum(refS.totalSucc)} connects that day.`
+    : `${refLabelCap}: ${fmtNum(refS.totalSucc)} connects, ${fmtUGX(refS.collections || 0)} collected.`;
+
   const trend = windowDates ? ownTrendPhrase(agent, refDate, d => d.successRate, windowDates, agent + refDate + 'trend') : null;
-  return `${label} you collected ${fmtUGX(priorS.collections || 0)} off ${fmtNum(priorS.totalSucc)} connects. Today: ${fmtNum(todayS.totalSucc)} connects, ${fmtUGX(todayS.collections || 0)} collected${trend ? ' \u2014 ' + trend : ''}.`;
+  return `${priorPart} ${refPart}${trend ? ' ' + trend.charAt(0).toUpperCase() + trend.slice(1) + '.' : ''}`;
 }
 
 // Maps each coachable weakness to the metric a "role model" is judged on,
@@ -1350,23 +1363,42 @@ function cycleProgressFor(agent, date) {
   return { cyc, cycleToDate, target, pct, daysLeft, remaining, paceNeeded, projected, totalCycleDays, daysElapsed };
 }
 
+function relativeDayLabel(date) {
+  const real = todayStr();
+  if (date === real) return 'today';
+  if (date === addDays(real, -1)) return 'yesterday';
+  return `on ${date}`;
+}
+
+function isBaselineDay(agent, date) {
+  if (cumOn(STATE, agent, date) === undefined) return false;
+  const cyc = cycleForDate(STATE, date);
+  const priorDates = loggedDatesInRange(STATE, cyc.start, addDays(date, -1)).filter(d => cumOn(STATE, agent, d) !== undefined);
+  return !priorDates.length;
+}
+
 function collectionsProgressLine(agent, date) {
   const cyc = cycleForDate(STATE, date);
   const cur = cumOn(STATE, agent, date);
   if (cur === undefined) return null;
   const priorDates = loggedDatesInRange(STATE, cyc.start, addDays(date, -1)).filter(d => cumOn(STATE, agent, d) !== undefined);
-  if (!priorDates.length) return `You're opening the cycle at ${fmtUGX(cur)} collected.`;
+  const dayLabel = relativeDayLabel(date);
+  if (!priorDates.length) return `You're opening the cycle at ${fmtUGX(cur)} collected (as of ${date}).`;
   const prevDate = priorDates[priorDates.length - 1];
   const prev = cumOn(STATE, agent, prevDate);
   const delta = cur - prev;
-  const sameDayBefore = prevDate === addDays(date, -1);
-  if (delta <= 0) return `You were at ${fmtUGX(prev)} and you're still at ${fmtUGX(cur)} \u2014 nothing new landed${sameDayBefore ? ' today' : ' since ' + prevDate}.`;
-  return `You were at ${fmtUGX(prev)}, you're now at ${fmtUGX(cur)} \u2014 that's ${fmtUGX(delta)} collected${sameDayBefore ? ' today' : ' since ' + prevDate}.`;
+  if (delta <= 0) return `You were at ${fmtUGX(prev)} and you're still at ${fmtUGX(cur)} \u2014 nothing new landed ${dayLabel}.`;
+  return `You were at ${fmtUGX(prev)}, you're now at ${fmtUGX(cur)} \u2014 that's ${fmtUGX(delta)} collected ${dayLabel}.`;
 }
 
-function patternPhrase(key, pattern) {
+function patternPhrase(key, pattern, isStrength) {
   const count = pattern.counts[key] || 0;
   const windowLen = pattern.windowDates.length || 1;
+  if (isStrength) {
+    if (count >= STATE.settings.flagThreshold) return `This is a real pattern now \u2014 ${count} of the last ${windowLen} working days.`;
+    if (count <= 1) return `First time this has shown up recently \u2014 here's hoping it becomes a habit.`;
+    return `Shown up ${count} of the last ${windowLen} working days \u2014 building into a real pattern.`;
+  }
   if (count >= STATE.settings.flagThreshold) return `This is a consistent pattern now \u2014 ${count} of the last ${windowLen} working days.`;
   if (count <= 1) return `First time this has come up recently \u2014 worth watching so it doesn't become a habit.`;
   return `This has shown up ${count} of the last ${windowLen} working days \u2014 starting to look like a pattern.`;
@@ -1385,7 +1417,7 @@ function agentDebrief(agent, date) {
   confirmedStrengthKeys.forEach(k => {
     const def = FLAG_TEXT[k];
     const seed = agent + date + k;
-    strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern)} ${def.keepAsk(s, seed)}`);
+    strengths.push(`${def.strength(s)} ${patternPhrase(k, pattern, true)} ${def.keepAsk(s, seed)}`);
   });
   WEAKNESS_KEYS.forEach(k => {
     if (!todayFlags[k]) return;
@@ -1393,7 +1425,7 @@ function agentDebrief(agent, date) {
     const seed = agent + date + k;
     const impact = estimateImpact(k, s, bench);
     needs.push({
-      text: `${def.weakness(s)} ${patternPhrase(k, pattern)}`,
+      text: `${def.weakness(s)} ${patternPhrase(k, pattern, false)}`,
       ask: def.ask(s, seed),
       impact: impact > 0 ? `Fix this and you're looking at roughly ${fmtUGX(impact)} more toward target.` : '',
       peer: peerSuggestion(k, agent, s, cycleDatesForPairing)
@@ -1444,11 +1476,10 @@ function agentDebriefText(d) {
   lines.push('');
   lines.push(hourNoteText(d.s).replace(/<\/?b>/g, ''));
   lines.push('');
-  lines.push(`Today: ${fmtUGX(d.s.collections || 0)} collected.`);
   lines.push(`This cycle: ${fmtUGX(d.prog.cycleToDate)} of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}. At this pace you'd land around ${fmtUGX(d.prog.projected)}. ${d.prog.daysLeft} day(s) left.`);
   lines.push(`Daily pace target: ${fmtUGX(d.prog.paceNeeded)}/day to hit ${fmtUGX(d.prog.target)} by the end of this cycle.`);
   lines.push('');
-  const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep it up \u2014 and consider sharing what's working with the team.` : `Get back on the phones and build the day's numbers.`);
+  const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep leaning on what's already working \u2014 see above.` : `Get back on the phones and build the day's numbers.`);
   lines.push(`Today's focus: ${focus}`);
   return lines.join('\n');
 }
@@ -1512,7 +1543,6 @@ function renderDebrief() {
       ...d.needs.map(x => `<div class="need-line">I need this: ${escapeHtml(x.text)} ${escapeHtml(x.ask)} ${escapeHtml(x.impact)}${x.peer ? '<br><span class="pill pill-blue" style="margin-top:4px;">' + escapeHtml(x.peer) + '</span>' : ''}</div>`),
       d.consistencyNote ? `<div style="margin-top:8px;">${escapeHtml(d.consistencyNote)}</div>` : null,
       d.s.logged ? `<div style="margin-top:8px;">${hourNoteText(d.s)}</div>` : null,
-      d.s.logged ? `<div style="margin-top:8px;">Today: ${fmtUGX(d.s.collections || 0)} collected.</div>` : null,
       d.s.logged ? `<div>This cycle: <b>${fmtUGX(d.prog.cycleToDate)}</b> of ${fmtUGX(d.prog.target)} (${d.prog.pct.toFixed(0)}%) \u2014 ${d.statusWord}.</div>` : null,
       d.s.logged ? `<div>Daily pace target: <b>${fmtUGX(d.prog.paceNeeded)}/day</b> for the ${d.prog.daysLeft} day(s) left to hit ${fmtUGX(d.prog.target)}.</div>` : null
     ].filter(Boolean).join('');
@@ -1562,17 +1592,19 @@ function teamFramingLine(date, names) {
 
 function teamDayNarrative(date, top, totalCall, totalSucc, split) {
   const parts = [];
-  if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading the day with ${fmtUGX(top.collections || 0)} collected \u2014 if everyone worked like this today, the team number wouldn't stand a chance. This is the one to copy.`);
+  const dayLabel = relativeDayLabel(date);
+  const dayLabelCap = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);
+  if (top) parts.push(`<b>${escapeHtml(top.agent)}</b> is leading ${dayLabel} with ${fmtUGX(top.collections || 0)} collected.`);
   const rate = totalCall ? (totalSucc / totalCall * 100) : 0;
-  parts.push(`Team connect rate for the day is ${fmtPct(rate)}.`);
+  parts.push(`Team connect rate ${dayLabel} is ${fmtPct(rate)}.`);
   if (split.strong.length) {
-    parts.push(`Did strong today: ${split.strong.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
+    parts.push(`Did strong ${dayLabel}: ${split.strong.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
   }
   if (split.weak.length) {
-    parts.push(`Did weak today: ${split.weak.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
+    parts.push(`Did weak ${dayLabel}: ${split.weak.map(r => `<b>${escapeHtml(r.agent)}</b> (${fmtUGX(r.collections || 0)})`).join(', ')}.`);
   }
   if (split.noActivity && split.noActivity.length) {
-    parts.push(`No dialing logged yet today for: ${split.noActivity.map(r => escapeHtml(r.agent)).join(', ')}.`);
+    parts.push(`No dialing logged yet ${dayLabel} for: ${split.noActivity.map(r => escapeHtml(r.agent)).join(', ')}.`);
   }
   return parts.join(' ');
 }
@@ -1914,30 +1946,34 @@ function renderCoaching() {
   document.getElementById('coaching-subtitle').textContent = `Who to count on, who needs coaching, and on what \u2014 based on ${cyc.start} \u2192 ${refDate}, updates as new data comes in`;
 
   const names = activeNames();
-  const cycleRows = names.map(n => Object.assign({ agent: n }, rangeStats(STATE, n, cycleDates)));
+  const cycleRows = names.map(n => Object.assign({ agent: n, team: teamOf(n) }, rangeStats(STATE, n, cycleDates)));
+  const teams = Array.from(new Set(activeRoster().map(a => a.team || 'Unassigned')));
 
-  // ---- Team leaders board ----
-  const leaderHtml = LEADER_METRICS.map(m => {
-    const qualifying = cycleRows.filter(r => r.totalCall >= m.min || m.key === 'totalTask' || m.key === 'collections');
-    if (!qualifying.length) return '';
-    const top = qualifying.slice().sort((a, b) => b[m.key] - a[m.key])[0];
-    if (!top || top[m.key] <= 0) return '';
-    return `<div class="debrief-card"><b>${escapeHtml(top.agent)}</b> \u2014 ${m.label}<br><span class="muted small">${m.fmt(top[m.key])}</span></div>`;
-  }).filter(Boolean).join('');
+  // ---- Team leaders board, split by team so nobody's compared across teams ----
+  const leaderHtml = teams.map(team => {
+    const teamRows = cycleRows.filter(r => r.team === team);
+    if (!teamRows.length) return '';
+    const cards = LEADER_METRICS.map(m => {
+      const qualifying = teamRows.filter(r => r.totalCall >= m.min || m.key === 'totalTask' || m.key === 'collections');
+      if (!qualifying.length) return '';
+      const top = qualifying.slice().sort((a, b) => b[m.key] - a[m.key])[0];
+      if (!top || top[m.key] <= 0) return '';
+      return `<div class="debrief-card"><b>${escapeHtml(top.agent)}</b> \u2014 ${m.label}<br><span class="muted small">${m.fmt(top[m.key])}</span></div>`;
+    }).filter(Boolean).join('');
+    return cards ? `<div class="small muted" style="margin:10px 0 6px;text-transform:uppercase;letter-spacing:1px;">${escapeHtml(team)}</div>${cards}` : '';
+  }).join('');
   document.getElementById('coaching-leaders').innerHTML = leaderHtml || '<div class="empty-note">Not enough logged data this cycle yet to name leaders.</div>';
 
-  // ---- Per-agent coaching cards (each driven by that agent's own confirmed pattern) ----
-  const bench = teamBenchmarksForDate(STATE, activeRoster(), refDate);
+  // ---- Per-agent coaching cards, each scoped to that agent's own team ----
   const container = document.getElementById('coaching-agents');
   container.innerHTML = names.map(agent => {
     const dayS = dayStats(STATE, agent, refDate);
+    const bench = teamBenchmarksForDate(STATE, activeRoster(), refDate, agent);
     const pattern = agentPatternSummary(STATE, activeRoster(), agent, refDate);
-    const cycleDatesForPairing = cycleDates;
 
     const confirmedWeak = pattern.confirmed.filter(k => WEAKNESS_KEYS.includes(k));
     const confirmedStrong = pattern.confirmed.filter(k => STRENGTH_KEYS.includes(k));
 
-    // headline weakness = the confirmed one with the biggest estimated UGX impact if fixed
     let headlineWeak = null;
     if (confirmedWeak.length) {
       headlineWeak = confirmedWeak.map(k => ({ k, impact: estimateImpact(k, dayS, bench) }))
@@ -1947,7 +1983,7 @@ function renderCoaching() {
     if (headlineWeak) {
       const def = FLAG_TEXT[headlineWeak];
       const impact = estimateImpact(headlineWeak, dayS, bench);
-      const peer = peerSuggestion(headlineWeak, agent, dayS, cycleDatesForPairing);
+      const peer = peerSuggestion(headlineWeak, agent, dayS, cycleDates);
       coachHtml = `<div class="need-line">${escapeHtml(def.weakness(dayS))} ${escapeHtml(def.ask(dayS, agent + refDate + headlineWeak))}${impact > 0 ? ' Fix this and you\'re looking at roughly ' + fmtUGX(impact) + ' more toward target.' : ''}</div>${peer ? `<div class="pill pill-blue" style="margin-top:6px;display:inline-block;">${escapeHtml(peer)}</div>` : ''}`;
     } else {
       const emergingWeak = pattern.emerging.filter(k => WEAKNESS_KEYS.includes(k))[0];
@@ -1958,21 +1994,21 @@ function renderCoaching() {
       }
     }
 
-    // headline strength = confirmed one, else fall back to whichever metric they lead the team on
+    // headline strength = confirmed multi-day pattern, else this agent's own
+    // best-ranking metric against their own team (never a generic fallback).
     let strongHtml;
     if (confirmedStrong.length) {
       const k = confirmedStrong[0];
       strongHtml = `<div class="you-line">${escapeHtml(FLAG_TEXT[k].strength(dayS))} ${escapeHtml(FLAG_TEXT[k].keepAsk(dayS, agent + refDate + k))}</div>`;
     } else {
-      const own = cycleRows.find(r => r.agent === agent);
-      const ranked = own ? LEADER_METRICS.map(m => ({ m, val: own[m.key], rank: cycleRows.filter(r => r[m.key] > own[m.key]).length })).sort((a, b) => a.rank - b.rank)[0] : null;
-      strongHtml = (ranked && ranked.rank === 0 && ranked.val > 0)
-        ? `<div class="you-line">Currently leads the team on ${ranked.m.label.toLowerCase().replace('best ', '').replace('top ', '').replace('most ', '')} \u2014 ${ranked.m.fmt(ranked.val)}. Count on ${escapeHtml(agent)} for this.</div>`
+      const personal = personalStrength(agent, refDate);
+      strongHtml = personal
+        ? `<div class="you-line">${escapeHtml(personal.text)}</div>`
         : `<div class="muted small">No standout strength flagged yet this cycle \u2014 reinforce consistency and watch for what starts to click.</div>`;
     }
 
     return `<div class="card">
-      <div class="card-header">${escapeHtml(agent)}</div>
+      <div class="card-header">${escapeHtml(agent)} <span class="muted" style="text-transform:none;font-weight:400;">\u2014 ${escapeHtml(teamOf(agent))}</span></div>
       ${strongHtml}
       <div style="margin-top:8px;">${coachHtml}</div>
     </div>`;
