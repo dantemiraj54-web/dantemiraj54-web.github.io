@@ -1460,7 +1460,10 @@ function agentDebrief(agent, date) {
   return { agent, date, s, bench, pattern, prog, strengths, needs, statusWord, consistencyNote, progressLine, retroLine };
 }
 
-function agentDebriefText(d) {
+function agentDebriefText(d) { return quickFeedbackText(d.agent, d.date); }
+
+// Previous long-form copy text, kept in case it is wanted again.
+function agentDebriefTextLong(d) {
   const lines = [];
   lines.push(`${d.agent} \u2014 ${d.date}`);
   lines.push('');
@@ -1482,6 +1485,446 @@ function agentDebriefText(d) {
   const focus = d.needs.length ? `${d.needs[0].ask} ${d.needs[0].impact}`.trim() : (d.strengths.length ? `Keep leaning on what's already working \u2014 see above.` : `Get back on the phones and build the day's numbers.`);
   lines.push(`Today's focus: ${focus}`);
   return lines.join('\n');
+}
+
+// ===================== QUICK FEEDBACK (short, copy-ready format) =====================
+// One block per agent: Name / Activity / Collections / Focus / Target.
+// Compares the chosen day with that agent's previous logged day. Wording is
+// picked deterministically from several variants per situation, offset by the
+// agent's position on the roster, so two people in the same spot don't get
+// the same sentence but a re-render never changes the text.
+const DISPLAY_NAME_OVERRIDES = {
+  'Elizabeth Akampurira': 'Elizabeth A',
+  'Elizabeth Kemigisa': 'Kemigisa',
+  'Babirye Violla': 'Violla'
+};
+
+function shortName(agent) {
+  if (DISPLAY_NAME_OVERRIDES[agent]) return DISPLAY_NAME_OVERRIDES[agent];
+  const parts = String(agent || '').trim().split(/\s+/);
+  const first = parts[0] || agent;
+  const clash = activeNames().filter(n => n !== agent && String(n).trim().split(/\s+/)[0] === first);
+  return clash.length && parts[1] ? `${first} ${parts[1][0]}` : first;
+}
+
+function ordinalDay(dateStr) {
+  const d = Number(String(dateStr).split('-')[2]);
+  const v = d % 100;
+  const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[d % 10] || 'th');
+  return d + suf;
+}
+
+// 10,600,000 -> "10.6M"; anything under a million stays a full number.
+function fmtMoney(n) {
+  n = Math.round(n || 0);
+  if (Math.abs(n) >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  return n.toLocaleString('en-US');
+}
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+// Same agent + day + situation always gets the same variant. Teammates in
+// the same situation are spread across the variants (least-used first).
+const PHRASE_BOOK = {};
+function pickFor(arr, agent, date, key) {
+  const slot = date + '|' + key;
+  const book = PHRASE_BOOK[slot] || (PHRASE_BOOK[slot] = {});
+  if (book[agent] === undefined) {
+    const counts = new Array(arr.length).fill(0);
+    Object.values(book).forEach(i => { if (i < arr.length) counts[i]++; });
+    const start = hashStr(slot) % arr.length;
+    let best = start;
+    for (let k = 0; k < arr.length; k++) {
+      const i = (start + k) % arr.length;
+      if (counts[i] < counts[best]) best = i;
+    }
+    book[agent] = best;
+  }
+  return arr[book[agent] % arr.length];
+}
+
+function relChange(a, b) { return a ? (b - a) / a : (b > 0 ? 1 : 0); }
+
+// 1 = up, -1 = down, 0 = about the same. A move only counts if it clears
+// both a minimum absolute change and a minimum relative change, so a
+// 59 -> 57 wobble isn't reported as a drop.
+function trendDir(a, b, minAbs, minRel) {
+  const d = b - a;
+  if (Math.abs(d) < minAbs || Math.abs(relChange(a, b)) < minRel) return 0;
+  return d > 0 ? 1 : -1;
+}
+
+function priorLoggedDate(agent, date) {
+  const back = loggedDatesInRange(STATE, addDays(date, -7), addDays(date, -1))
+    .filter(d => dayStats(STATE, agent, d).logged);
+  return back.length ? back[back.length - 1] : null;
+}
+
+// The daily number the agent needed on `date`, given what they'd collected
+// in the cycle up to the day before (remaining target / days left incl. that day).
+function dailyTargetOn(agent, date) {
+  const cyc = cycleForDate(STATE, date);
+  const total = enumerateDates(cyc.start, cycleEndDateFor(cyc.start, STATE.settings.cycleStartDay)).length;
+  const before = date > cyc.start ? enumerateDates(cyc.start, addDays(date, -1)).length : 0;
+  const cum = date > cyc.start ? cycleToDateCollections(STATE, agent, addDays(date, -1)) : 0;
+  return Math.max(0, targetFor(agent) - cum) / Math.max(1, total - before);
+}
+
+function teamTopCollection(date) {
+  let best = null;
+  activeNames().forEach(n => {
+    if (isBaselineDay(n, date)) return;
+    const v = dayStats(STATE, n, date).collections;
+    if (v != null && v > 0 && (!best || v > best.v)) best = { n, v };
+  });
+  return best;
+}
+
+// Accounts and connects both up: who improved most on the two combined?
+function teamBestCombo(date) {
+  let best = null;
+  activeNames().forEach(n => {
+    const pd = priorLoggedDate(n, date);
+    if (!pd) return;
+    const a = dayStats(STATE, n, pd), b = dayStats(STATE, n, date);
+    if (!b.logged) return;
+    const tr = relChange(a.totalTask, b.totalTask), cr = relChange(a.totalSucc, b.totalSucc);
+    if (tr <= 0 || cr <= 0) return;
+    if (!best || tr + cr > best.v) best = { n, v: tr + cr };
+  });
+  return best;
+}
+
+function quickContext(agent, date) {
+  const name = shortName(agent);
+  const s1 = dayStats(STATE, agent, date);
+  if (!s1.logged) return { agent, date, name, logged: false };
+  const priorDate = priorLoggedDate(agent, date);
+  const s0 = priorDate ? dayStats(STATE, agent, priorDate) : null;
+  const c = {
+    agent, date, name, logged: true, s1, s0, priorDate,
+    prog: cycleProgressFor(agent, date),
+    rl: ordinalDay(date), pl: priorDate ? ordinalDay(priorDate) : '',
+    T1: s1.totalTask, C1: s1.totalSucc, K1: s1.totalCall,
+    R: s1.collections, rT: dailyTargetOn(agent, date),
+    refBaseline: isBaselineDay(agent, date)
+  };
+  if (s0) {
+    c.T0 = s0.totalTask; c.C0 = s0.totalSucc; c.K0 = s0.totalCall;
+    c.P = s0.collections; c.pT = dailyTargetOn(agent, priorDate);
+    c.priorBaseline = isBaselineDay(agent, priorDate);
+    c.tDir = trendDir(c.T0, c.T1, 4, 0.06);
+    c.cDir = trendDir(c.C0, c.C1, 3, 0.10);
+    const rate0 = c.T0 ? c.C0 / c.T0 : 0, rate1 = c.T1 ? c.C1 / c.T1 : 0;
+    c.rDir = trendDir(rate0 * 100, rate1 * 100, 0, 0.15);
+    const rep0 = c.T0 ? c.K0 / c.T0 : 0, rep1 = c.T1 ? c.K1 / c.T1 : 0;
+    c.fewerRepeats = rep0 > 1 && rep1 < rep0 * 0.93;
+    c.tRel = relChange(c.T0, c.T1);
+    const combo = teamBestCombo(date);
+    c.bestCombo = !!(combo && combo.n === agent);
+  }
+  const sw = strongWeakHours(s1.succ, STATE.settings);
+  c.bestHour = sw.strongest && sw.strongest.v >= 2 ? hourLabel(sw.strongest.h) : null;
+  return c;
+}
+
+function whenLabel(c) {
+  const real = todayStr();
+  if (c.date === real) return 'today';
+  if (c.date === addDays(real, -1)) return 'yesterday';
+  return `on the ${c.rl}`;
+}
+
+// ---------- ACTIVITY ----------
+function activityLine(c) {
+  const { T0, T1, C0, C1 } = c;
+  if (!c.s0) {
+    return { kind: 'first', text: `${fmtNum(T1)} accounts worked and ${fmtNum(C1)} connects. First logged day in the last week, so nothing to compare against yet.` };
+  }
+  const key = 'act';
+  const more = c.tRel >= 0.2 ? 'a lot more' : 'more';
+  let kind, pool;
+
+  if (c.tDir === 1 && (c.cDir === -1 || (c.cDir === 0 && c.rDir === -1))) {
+    kind = 'noLanding';
+    pool = c.cDir === -1 ? [
+      () => `You worked ${more} accounts (${T0} to ${T1}) but got fewer connects (${C0} to ${C1}), even though you called more.`,
+      () => `${T1} accounts worked, up from ${T0}. Connects went the other way, ${C0} down to ${C1}. More dials, fewer conversations.`,
+      () => `More accounts (${T0} to ${T1}), but only ${C1} connects against ${C0} before. The extra volume didn't put more people on the phone.`
+    ] : [
+      () => `You worked more accounts (${T0} to ${T1}). But out of everyone you called, fewer of them turned into a real connect.`,
+      () => `You worked more accounts (${T0} to ${T1}), but fewer of the extra calls turned into connects (${C0} to ${C1}).`,
+      () => `Volume is up, ${T0} to ${T1} accounts, but connects only moved ${C0} to ${C1}. The extra work isn't landing yet.`
+    ];
+  } else if (c.tDir === 1 && c.cDir === 1) {
+    kind = 'strong';
+    const lead = c.tRel >= 0.2 ? 'Big jump' : 'Up';
+    pool = [
+      () => `${lead}, ${T0} to ${T1} accounts, and your connects went up too (${C0} to ${C1}).${c.bestCombo ? ' Best combo on the team.' : ''}`,
+      () => `More accounts (${T0} to ${T1}) and more of them turned into connects too (${C0} to ${C1}).`,
+      () => `Accounts up from ${T0} to ${T1}, connects up from ${C0} to ${C1}. Both moved the right way.`
+    ];
+  } else if (c.tDir === 1) {
+    if (c.fewerRepeats) {
+      kind = 'smart';
+      pool = [
+        () => `You worked more accounts (${T0} to ${T1}), and you're not wasting calls on repeats. Connects stayed steady.`,
+        () => `A bit more accounts (${T0} to ${T1}), but you're dialing smarter, fewer repeat calls, and connects stayed steady.`,
+        () => `${T1} accounts against ${T0}, with fewer redials on the same numbers. Connects held around ${C1}.`
+      ];
+    } else {
+      kind = 'moreHeld';
+      pool = [
+        () => `More accounts (${T0} to ${T1}) and connects held steady (${C0} to ${C1}).`,
+        () => `You added accounts (${T0} to ${T1}) and kept connects level. Volume up, nothing lost on the way.`
+      ];
+    }
+  } else if (c.tDir === 0) {
+    if (c.cDir === 1) {
+      kind = 'sameMoreConn';
+      pool = [
+        () => `About the same volume (${T0} and ${T1} accounts) but more connects (${C0} to ${C1}). You're getting more out of the same work.`,
+        () => `Accounts stayed around ${T1}, connects went from ${C0} to ${C1}. Better hit rate on the same effort.`
+      ];
+    } else if (c.cDir === -1) {
+      kind = 'sameLessConn';
+      pool = [
+        () => `Accounts about the same (${T0} and ${T1}) but connects dropped (${C0} to ${C1}). Same work, fewer people on the phone.`,
+        () => `Volume didn't change, ${T1} accounts, but connects slipped from ${C0} to ${C1}.`
+      ];
+    } else {
+      kind = 'flat';
+      pool = c.fewerRepeats ? [
+        () => `About the same accounts (${T0} and ${T1}), fewer repeat calls, connects steady at ${C1}.`
+      ] : [
+        () => `About the same as the day before. ${T1} accounts, ${C1} connects.`,
+        () => `Steady. Accounts ${T0} then ${T1}, connects ${C0} then ${C1}. Nothing moved much either way.`
+      ];
+    }
+  } else { // tasks down
+    if (c.cDir === -1) {
+      kind = 'downBoth';
+      pool = [
+        () => `You worked fewer accounts (${T0} to ${T1}), and got fewer connects (${C0} to ${C1}).`,
+        () => `Accounts down from ${T0} to ${T1}, connects down from ${C0} to ${C1}. Less work, less to show for it.`,
+        () => `Both dropped. ${T1} accounts (was ${T0}) and ${C1} connects (was ${C0}).`
+      ];
+    } else if (c.cDir === 1) {
+      kind = 'downBetter';
+      pool = [
+        () => `Fewer accounts (${T0} to ${T1}) but more connects (${C0} to ${C1}). You picked better.`,
+        () => `You worked ${T1} accounts against ${T0}, yet connects went up, ${C0} to ${C1}. Less volume, more people reached.`
+      ];
+    } else {
+      kind = 'downHeld';
+      pool = [
+        () => `You worked fewer accounts (${T0} to ${T1}) but connects held up (${C0} to ${C1}). Fewer dials, same result.`,
+        () => `${T1} accounts against ${T0}, connects steady at about ${C1}. You got the same out of less.`
+      ];
+    }
+  }
+  return { kind, text: pickFor(pool, c.agent, c.date, key + kind + (c.cDir === -1 ? 'D' : 'F') + (c.fewerRepeats ? 'r' : ''))() };
+}
+
+// ---------- COLLECTIONS ----------
+function collectionsLine(c) {
+  const rl = c.rl, pl = c.pl;
+  if (c.R == null) return `No collections logged for the ${rl} yet.`;
+  const R = c.R, rT = c.rT;
+  if (c.refBaseline) return `You're opening the cycle at ${fmtMoney(R)} collected.`;
+  if (rT <= 0) return `The cycle target is already covered. You still added ${fmtMoney(R)} on the ${rl}.`;
+
+  const rHit = R >= rT;
+  const rMissBy = Math.max(0, rT - R);
+  const topR = teamTopCollection(c.date);
+  const isTopR = !!(topR && topR.n === c.agent);
+  const key = 'coll';
+
+  // no usable previous day: report the one day on its own
+  if (!c.s0 || c.P == null || c.priorBaseline || c.pT <= 0) {
+    const pool = rHit ? [
+      () => `${cap(rl)}: on target, ${fmtMoney(R)} against ${fmtMoney(rT)}.`,
+      () => `You hit target on the ${rl}, ${fmtMoney(R)} against ${fmtMoney(rT)}.`
+    ] : [
+      () => `${cap(rl)}: ${fmtMoney(R)} against ${fmtMoney(rT)}, short by ${fmtMoney(rMissBy)}.`,
+      () => `Missed on the ${rl} by ${fmtMoney(rMissBy)} (${fmtMoney(R)} vs ${fmtMoney(rT)}).`
+    ];
+    return pickFor(pool, c.agent, c.date, key + 'solo')();
+  }
+
+  const P = c.P, pT = c.pT;
+  const pHit = P >= pT;
+  const pMissBy = Math.max(0, pT - P);
+  const near = !pHit && pMissBy <= pT * 0.1;
+  const mult = R / rT;
+  const topP = teamTopCollection(c.priorDate);
+  const isTopP = !!(topP && topP.n === c.agent);
+  const inMotion = rHit && c.tDir === -1 && c.cDir === -1
+    ? ` Your calling was down, so that money probably came from something already in motion, not new work.` : '';
+  let pool;
+
+  if (!pHit && rHit) {
+    const beat = mult >= 3 ? `more than triple your target (${fmtMoney(R)} vs ${fmtMoney(rT)})`
+      : mult >= 2 ? `more than double your target (${fmtMoney(R)} vs ${fmtMoney(rT)})`
+      : `back on target (${fmtMoney(R)} vs ${fmtMoney(rT)})`;
+    const bounce = mult >= 2 ? `you smashed it, ${beat}` : `you got it back, ${beat}`;
+    pool = [
+      () => `${cap(pl)} you missed ${near ? 'by just ' : 'by '}${fmtMoney(pMissBy)}${near ? ', basically there' : ''}. ${cap(rl)} ${bounce}.`,
+      () => isTopR
+        ? `Missed by ${fmtMoney(pMissBy)} on the ${pl}, then the biggest collection on the whole team on the ${rl} (${fmtMoney(R)}).`
+        : `Missed by ${fmtMoney(pMissBy)} on the ${pl}, ${mult >= 2 ? 'big hit' : 'hit target'} on the ${rl} (${fmtMoney(R)}).`,
+      () => `Missed on the ${pl}${near ? ' by just ' + fmtMoney(pMissBy) : ''}, hit on the ${rl} (${fmtMoney(R)}).`
+    ];
+  } else if (pHit && rHit) {
+    pool = [
+      () => `Hit target both days, ${pl} and ${rl} (${fmtMoney(R)}).`,
+      () => `${isTopP ? `Best day on the team on the ${pl} (${fmtMoney(P)})` : `On target on the ${pl} (${fmtMoney(P)})`}, ${mult >= 2 ? 'strong again' : 'and again'} on the ${rl} (${fmtMoney(R)}).`,
+      () => `Two days above target, ${fmtMoney(P)} on the ${pl} and ${fmtMoney(R)} on the ${rl}.`
+    ];
+  } else if (pHit && !rHit) {
+    pool = R === 0 ? [
+      () => `Hit on the ${pl} (${fmtMoney(P)}), then nothing landed on the ${rl}.`
+    ] : [
+      () => `Hit on the ${pl} (${fmtMoney(P)}), then fell short on the ${rl}, ${fmtMoney(R)} against ${fmtMoney(rT)}.`,
+      () => `${cap(pl)} was on target (${fmtMoney(P)}). The ${rl} slipped, short by ${fmtMoney(rMissBy)}.`
+    ];
+  } else {
+    const wider = (rMissBy / rT) > (pMissBy / pT);
+    pool = R === 0 ? [
+      () => `Missed on the ${pl} by ${fmtMoney(pMissBy)} and nothing landed on the ${rl}.`
+    ] : [
+      () => `Missed both days. Short by ${fmtMoney(pMissBy)} on the ${pl} and by ${fmtMoney(rMissBy)} on the ${rl}.`,
+      () => `${cap(pl)} short by ${fmtMoney(pMissBy)}, ${rl} short by ${fmtMoney(rMissBy)}. ${wider ? 'The gap got wider.' : 'Closer than the day before, still under.'}`
+    ];
+  }
+  return pickFor(pool, c.agent, c.date, key + (pHit ? 'H' : 'M') + (rHit ? 'H' : 'M'))() + inMotion;
+}
+
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+// ---------- FOCUS ----------
+function focusLine(c, kind) {
+  const rHit = c.R != null && c.rT > 0 ? c.R >= c.rT : (c.rT <= 0);
+  const key = 'focus' + kind;
+  const when = whenLabel(c);
+  let pool;
+  switch (kind) {
+    case 'strong':
+      pool = [
+        () => `This is the level to repeat, more accounts AND more connects, not just one.`,
+        () => `Same again today. Keep the account count up and the connects will keep coming with it.`,
+        () => `Don't change what you did. Same volume, and get a firm amount and date on every connect you land.`
+      ]; break;
+    case 'noLanding':
+      pool = [
+        () => `You're calling more people, good. Now close more of the ones you reach.`,
+        () => `The effort is there, now tighten up so more of those calls turn into real connects and payments.`,
+        () => `A shorter list that picks up beats a long one that doesn't. Pick your accounts better before adding more dials.`
+      ];
+      if (c.bestHour) pool.push(() => `More dials isn't the problem. Your connects came mostly around ${c.bestHour}, so put your best accounts in that window.`);
+      break;
+    case 'smart':
+      pool = [
+        () => `More accounts, less repeat dialing. Keep doing exactly this.`,
+        () => `This is working. Keep dialing this way and don't go back to redialing the same numbers.`,
+        () => `Keep this pattern today and push a little harder on the connects.`
+      ]; break;
+    case 'moreHeld':
+      pool = [
+        () => `Volume is up. Now get the connects to follow it, that's where the extra money is.`,
+        () => c.bestHour ? `You've got the volume. Your connects came mostly around ${c.bestHour}, so lean your best accounts into that window.` : `You've got the volume. Work on the hour you call each account so more of them get answered.`
+      ]; break;
+    case 'flat':
+      pool = [
+        () => `Steady is fine, but the target needs more. Push a few extra accounts and a few more connects today.`,
+        () => `Nothing wrong with ${when === 'yesterday' ? 'yesterday' : 'that day'}, nothing extra either. Add volume early in the day.`
+      ]; break;
+    case 'sameMoreConn':
+      pool = [
+        () => `You're getting more from the same effort. Now add a few more accounts on top.`,
+        () => `The connect rate is improving. Keep it and raise the account count a little.`
+      ]; break;
+    case 'sameLessConn':
+      pool = [
+        () => `Same effort, fewer people picking up. Try your accounts at a different hour before adding more dials.`,
+        () => c.bestHour ? `Your connects came mostly around ${c.bestHour}. Move more of your calling into that window.` : `Change the hour you call the same accounts before you add more dials.`
+      ]; break;
+    case 'downBoth':
+      pool = rHit ? [
+        () => `Your calling actually went down ${when}. Get your numbers back up today, don't rely on old payments.`,
+        () => `Money came in but the work behind it dropped. Get the dial count back up today so tomorrow isn't empty.`
+      ] : [
+        () => `Your calling dropped ${when} and the money didn't come either. Get on the phones early today and rebuild the numbers.`,
+        () => `Numbers are down across the board. Start the day on your best accounts and get the dial count back up.`
+      ]; break;
+    case 'downBetter':
+      pool = [
+        () => `You're picking well. Bring the volume back up and keep that hit rate.`,
+        () => `Good hit rate on less work. Add accounts without letting that slip.`
+      ]; break;
+    case 'downHeld':
+      pool = [
+        () => `Good return on less work. Now bring the volume back up without losing that.`,
+        () => `You can do the same with fewer accounts, so imagine it with more. Add volume today.`
+      ]; break;
+    default: // 'first'
+      pool = rHit ? [
+        () => `Good start. Hold the same pace today.`
+      ] : [
+        () => `Get the account count up early today and push for a firm amount and date on every connect.`
+      ];
+  }
+  let text = pickFor(pool, c.agent, c.date, key)();
+  // Connects are there but money isn't: say so, since that's a different fix.
+  if (!rHit && c.s0 && c.cDir >= 0 && kind !== 'noLanding' && kind !== 'downBoth') {
+    text += ' ' + pickFor([
+      `Get a firm amount and date on every connect.`,
+      `The connects are there, so walk each one to a payment.`
+    ], c.agent, c.date, key + 'add');
+  }
+  return text;
+}
+
+function targetLine(c) {
+  return c.prog.remaining <= 0 ? 'Cycle target reached, anything more is a bonus' : fmtNum(c.prog.paceNeeded);
+}
+
+function quickFeedbackCore(agent, date) {
+  const c = quickContext(agent, date);
+  if (!c.logged) {
+    return { name: c.name, logged: false, text: `${c.name}\nNo activity logged on ${date} yet.` };
+  }
+  const act = activityLine(c);
+  const activity = act.text;
+  const collections = collectionsLine(c);
+  const focus = focusLine(c, act.kind);
+  const target = targetLine(c);
+  const text = [c.name, `Activity: ${activity}`, `Collections: ${collections}`, `Focus: ${focus}`, `Target: ${target}`].join('\n');
+  return { name: c.name, logged: true, activity, collections, focus, target, text };
+}
+
+// Assign wording for the whole roster in roster order the first time a day is
+// asked for, so who gets which variant doesn't depend on which card was opened first.
+const QUICK_WARMED = {};
+function quickFeedback(agent, date) {
+  if (!QUICK_WARMED[date] && STATE.daily[date]) {
+    QUICK_WARMED[date] = true;
+    activeNames().forEach(n => quickFeedbackCore(n, date));
+  }
+  return quickFeedbackCore(agent, date);
+}
+
+function quickFeedbackText(agent, date) { return quickFeedback(agent, date).text; }
+
+function quickFeedbackHtml(agent, date) {
+  const q = quickFeedback(agent, date);
+  if (!q.logged) return `<span class="muted">No activity logged for ${escapeHtml(agent)} on ${escapeHtml(date)} yet.</span>`;
+  const row = (label, val) => `<div style="margin-bottom:7px;"><b>${label}:</b> ${escapeHtml(val)}</div>`;
+  return row('Activity', q.activity) + row('Collections', q.collections) + row('Focus', q.focus) + row('Target', q.target);
 }
 
 // ===================== RENDER: DEBRIEF =====================
@@ -1549,7 +1992,7 @@ function renderDebrief() {
 
     return `<div class="debrief-card">
       <div class="dc-head"><div class="dc-name">${escapeHtml(n)}</div><div class="dc-tags">${tagsHtml}</div></div>
-      <div class="debrief-body">${bodyHtml}</div>
+      <div class="debrief-body">${quickFeedbackHtml(n, date)}${d.s.logged ? `<details style="margin-top:10px;"><summary class="muted small" style="cursor:pointer;">Full detail (hours, cycle pace, patterns)</summary><div style="margin-top:8px;">${bodyHtml}</div></details>` : ''}</div>
       <div class="copy-line"><button class="btn btn-sm" data-copy-debrief="${escapeHtml(n)}">Copy Feedback</button></div>
     </div>`;
   }).join('');
@@ -1616,7 +2059,7 @@ document.getElementById('debrief-date').addEventListener('input', () => safeRend
 document.getElementById('debrief-copy-all-btn').addEventListener('click', () => {
   const date = document.getElementById('debrief-date').value || todayStr();
   const names = activeNames();
-  const text = names.map(n => agentDebriefText(agentDebrief(n, date))).join('\n\n' + '-'.repeat(40) + '\n\n');
+  const text = names.map(n => agentDebriefText(agentDebrief(n, date))).join('\n\n');
   copyText(text, 'Full team debrief');
 });
 
