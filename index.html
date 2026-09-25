@@ -818,12 +818,12 @@ function agentPatternSummary(state, roster, agent, asOfDate) {
 //    will now share the same live data.
 // ---------------------------------------------------------------
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAh1bKeTEqPrJt4TAuz7_1wC9BaWgRg3k0",
-  authDomain: "agent-tracker-9b0a1.firebaseapp.com",
-  projectId: "agent-tracker-9b0a1",
-  storageBucket: "agent-tracker-9b0a1.firebasestorage.app",
-  messagingSenderId: "466008647854",
-  appId: "1:466008647854:web:eb97f49a2637b036c3a53f"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const FIREBASE_CONFIGURED = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY';
 
@@ -2361,7 +2361,7 @@ function tagsFor(c) {
 // ---------- assemble ----------
 function quickFeedbackCore(agent, date) {
   const c = quickContext(agent, date);
-  if (!c.hasData) return { name: c.name, hasData: false, text: `${c.name}\nNo data loaded for ${date} yet.` };
+  if (!c.hasData) return { name: c.name, hasData: false, tags: [], text: `${c.name}\nNothing logged for ${date} yet.` };
   const act = activityLine(c);
   const activity = act.text;
   const collections = collectionsLine(c);
@@ -2398,7 +2398,7 @@ function quickFeedbackText(agent, date) { return quickFeedback(agent, date).text
 
 function quickFeedbackHtml(agent, date) {
   const q = quickFeedback(agent, date);
-  if (!q.hasData) return `<span class="muted">No data loaded for ${escapeHtml(date)} yet.</span>`;
+  if (!q.hasData) return `<span class="muted">Nothing logged for this date yet.</span>`;
   const row = (label, val) => `<div style="margin-bottom:7px;"><b>${label}:</b> ${escapeHtml(val)}</div>`;
   return row('Activity', q.activity) + row('Collections', q.collections) + row('Focus', q.focus) +
     (q.pattern ? row('Pattern', q.pattern) : '') + row('Target', q.target);
@@ -2700,7 +2700,7 @@ function renderDebrief() {
   container.innerHTML = showNames.map(n => {
     const d = agentDebrief(n, date);
     const tagsHtml = [
-      ...quickFeedback(n, date).tags.map(t => `<span class="pill pill-${t.cls}">${escapeHtml(t.text)}</span>`),
+      ...(quickFeedback(n, date).tags || []).map(t => `<span class="pill pill-${t.cls}">${escapeHtml(t.text)}</span>`),
       `<span class="pill ${d.prog.pct >= 75 ? 'pill-green' : d.prog.pct >= 40 ? 'pill-amber' : 'pill-red'}">${d.prog.pct.toFixed(0)}% of target</span>`
     ].join('');
     const bodyHtml = [
